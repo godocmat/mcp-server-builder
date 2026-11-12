@@ -2,7 +2,7 @@
 
 12 November 2026 · Phase 0 handoff · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
-D5 consolidates the reviewed D1–D4 integration baseline at `780b107ba3da6d41ad45e65afab6c539f616c21f` on `master`. The design package is ready for coordinator review and integration. It selects the portable, runtime, desktop and CLI contracts and assigns the remaining verification to implementation and release tasks. The repository is at the planning milestone. The evidence gates below have no implementation results yet.
+Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
 D5 checks covered relative links and anchors, Markdown tables, all 29 requirement mappings, task dependency cycles, the 18 brief checklist items, both JSON examples and Mermaid syntax for the four architecture diagrams.
 
@@ -16,7 +16,7 @@ D5 checks covered relative links and anchors, Markdown tables, all 29 requiremen
 
 ## Pre-implementation design checklist
 
-The 18 items in the product brief are covered by these artifacts. The coordinator checks this inventory with the D5 review. Implementation evidence follows the task gates.
+The coordinator confirmed that the artifacts below cover the 18 items in the product brief. Implementation evidence follows the task gates.
 
 | Brief item | Design artifact |
 | --- | --- |
