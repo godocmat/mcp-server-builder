@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "cli": { "analytics": false },
+  "projects": {
+    "desktop": {
+      "projectType": "application",
+      "root": "ui",
+      "sourceRoot": "ui/src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": "ui/dist",
+            "index": "ui/src/index.html",
+            "browser": "ui/src/main.ts",
+            "tsConfig": "tsconfig.app.json",
+            "styles": ["ui/src/styles.css"]
+          },
+          "configurations": {
+            "production": {
+              "optimization": { "styles": { "inlineCritical": false } },
+              "outputHashing": "all"
+            },
+            "development": { "optimization": false, "sourceMap": true }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": { "buildTarget": "desktop:build:development" }
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "tsconfig.spec.json",
+            "buildTarget": "desktop:build:development"
+          }
+        }
+      }
+    }
+  }
+}

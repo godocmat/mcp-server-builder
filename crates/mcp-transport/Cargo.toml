@@ -1,0 +1,29 @@
+[package]
+name = "mcp-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+server-stdio = ["dep:rmcp", "rmcp/server", "rmcp/transport-io"]
+server-http = ["dep:rmcp", "rmcp/server", "rmcp/transport-streamable-http-server"]
+client-stdio = ["dep:rmcp", "rmcp/client", "rmcp/transport-child-process"]
+client-http-rustls = [
+    "dep:rmcp",
+    "rmcp/client",
+    "rmcp/transport-streamable-http-client-reqwest",
+    "rmcp/auth",
+    "rmcp/reqwest",
+]
+client-http-native-tls = [
+    "dep:rmcp",
+    "rmcp/client",
+    "rmcp/transport-streamable-http-client-reqwest",
+    "rmcp/auth",
+    "rmcp/reqwest-native-tls",
+]
+
+[dependencies]
+mcp-runtime.workspace = true
+rmcp = { workspace = true, optional = true }

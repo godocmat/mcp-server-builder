@@ -1,0 +1,17 @@
+[package]
+name = "mcp-builder-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+builder-app.workspace = true
+tauri.workspace = true
+tracing-subscriber.workspace = true
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

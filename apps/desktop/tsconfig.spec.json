@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "resolveJsonModule": true,
+    "types": []
+  },
+  "include": ["ui/src/**/*.spec.ts"]
+}

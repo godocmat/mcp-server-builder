@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-12 November 2026 · Phase 0 handoff · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+12 November 2026 · Phase 0 handoff and F1 foundation · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -46,11 +46,26 @@ The coordinator confirmed that the artifacts below cover the 18 items in the pro
 
 F1 owns the workspace manifests, initial lockfiles and shared DTOs. Use the candidate versions for the first build and record exact inputs and any compatibility changes. F1 hands off the clean build, minimal CLI and desktop smoke, and candidate dependency and toolchain evidence to F2 and M1/M2. F2 owns the cross-platform CI matrix. M3/M4 own the SDK wire and feature validation. Provider, client account, package signing and distribution evidence enter at the gates below.
 
+## F1 workspace foundation
+
+Branch `codex/f1-workspace-foundation` started from reviewed Phase 0 integration commit `1eb58a03d4c931741d4f96fab69f34f8fe3874bd`. It adds the nine-member Cargo workspace, a shared Rust smoke service and diagnostic DTOs, a Clap CLI, and the Tauri main window backed by strict Angular and Signals. The Rust toolchain and both lockfiles are committed. [Workspace dependencies](docs/development.md#workspace-dependencies)
+
+Windows 11 Pro 25H2 x64 passed a fresh `cargo build --locked --workspace --features mcp-builder-desktop/custom-protocol`, the default locked workspace build, Rust formatting, Clippy and both Rust contract tests. Angular passed `npm ci --engine-strict`, formatting, production build, TypeScript and both IPC mock tests. The CLI returned human and versioned JSON results with exits `0` and `2` as specified for the tested cases. The native WebView2 app displayed its successful typed IPC reply, and the correlation ID matched the Rust trace. [Commands and observed results](docs/development.md#locked-build-and-smoke)
+
+The tested inputs use Rust `1.99.1`, Node `24.22.3` and npm `11.19.1` as the primary pair, Angular `22.2.6` with CLI/build `22.2.7`, TypeScript `6.0.3`, Tauri Rust `2.12.5` and Tauri JavaScript `2.12.4`. Node `26.13.1` with npm `11.20.0` also passed the locked Angular checks and Tauri debug build. User-local Microsoft packages supplied the initially missing MSVC linker, C++ tools and Windows SDK. The six separate `rmcp 3.9.0` builds passed, including Rustls and Windows native TLS. [Toolchain and prerequisite evidence](docs/development.md#f1-toolchain) · [Resolved SDK feature graphs](docs/development.md#mcp-sdk-build-probes)
+
+| Next task | F1 handoff |
+| --- | --- |
+| F2 · Build and test CI | Use the locked commands, shared Rust/TypeScript fixture and native smoke on the named Windows, macOS and Linux runners. Check Node and WebView compatibility and keep the TLS probes separate. |
+| M1 · Local project model | Implement schema 1 and validation in `builder-project` and shared project services and the catalog in `builder-app`. Use the common reply and diagnostic contract at the shell boundary. |
+| M2 · Local execution policy | Implement grants, constraints, limits and redaction in `mcp-policy`. `mcp-runtime` already has the dependency edge for shared dispatch. |
+| M3/M4 · MCP | Use the optional SDK profiles in `mcp-transport` for real stdio and HTTP tests. Verify revision and session behavior, cancellation and the final SDK feature selection. |
+
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
-| F1/F2 · Foundation and platform | Resolve exact Rust, Node, Angular, TypeScript, Tauri and native prerequisites on the named workers. Record candidate SDK/TLS feature graphs. Verify WebViews, DTO parity, CI reporting and native GUI automation options. |
+| F2 · Foundation and platform | Repeat the locked build, type and feature checks on the named workers. Verify each WebView, DTO parity, CI reporting and native GUI automation options. |
 | M1/M2/M5–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries, Windows Job Objects and filesystem behavior, secret canaries, clean standalone build, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
 | M3/M4 · MCP | Verify both revisions over real stdio and HTTP, the issued legacy and sessionless comparison, cancellation and the initial SDK pin. |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |

@@ -1,0 +1,39 @@
+<main>
+  <h1>MCP Server Builder</h1>
+  <p>Verify that the desktop can reach the shared Rust service.</p>
+
+  @let current = state();
+  <button type="button" (click)="run()" [disabled]="current.kind === 'running'">
+    Run workspace check
+  </button>
+
+  <div role="status">
+    @switch (current.kind) {
+      @case ("running") {
+        <p>Checking the workspace…</p>
+      }
+      @case ("complete") {
+        @if (current.reply.ok) {
+          <p class="result">Workspace check passed.</p>
+          <dl>
+            <dt>Builder</dt>
+            <dd>{{ current.reply.data.builderVersion }}</dd>
+            <dt>IPC contract</dt>
+            <dd>{{ current.reply.data.contractVersion }}</dd>
+            <dt>Correlation ID</dt>
+            <dd>{{ current.reply.data.correlationId }}</dd>
+          </dl>
+        } @else {
+          <p class="result">{{ current.reply.error.message }}</p>
+          @if (current.reply.error.action; as action) {
+            <p>{{ action }}</p>
+          }
+        }
+      }
+      @case ("unavailable") {
+        <p class="result">Could not reach the desktop service.</p>
+        <p>Open the native app and try again.</p>
+      }
+    }
+  </div>
+</main>

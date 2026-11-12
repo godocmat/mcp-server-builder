@@ -1,0 +1,9 @@
+[package]
+name = "builder-project"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+mcp-runtime.workspace = true

@@ -1,0 +1,30 @@
+{
+  "supported": {
+    "request": { "contractVersion": 1 },
+    "reply": {
+      "ok": true,
+      "data": {
+        "builderVersion": "0.1.0",
+        "contractVersion": 1,
+        "correlationId": "00000000-0000-0000-0000-000000000000"
+      },
+      "diagnostics": []
+    }
+  },
+  "unsupported": {
+    "request": { "contractVersion": 2 },
+    "reply": {
+      "ok": false,
+      "error": {
+        "code": "input.invalid",
+        "message": "Unsupported workspace smoke contract version.",
+        "severity": "error",
+        "correlationId": "00000000-0000-0000-0000-000000000000",
+        "action": "Use a supported workspace smoke contract version.",
+        "field": "/contractVersion",
+        "details": { "supportedVersions": [1] }
+      },
+      "diagnostics": []
+    }
+  }
+}
