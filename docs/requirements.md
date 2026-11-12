@@ -88,6 +88,25 @@ Empty list → Create a project or open a project folder.  [Import] in v1
 
 A resource template is available from the resource menu. Folder or name errors keep the create form open. Validation takes the author to the affected field and retains the draft. Covered by MVP-01, MVP-02, V1-01, and V1-02.
 
+### Preview an import
+
+```text
+Projects → Import
+Source [Builder project directory or ZIP ▾]  [Browse]  [Preview]
+  Catalog sample · schema 1
+  4 capabilities · 2 bindings · CATALOG_TOKEN needs rebinding
+  Destination [new project folder]  [Browse]
+  [Cancel] [Import project]
+
+Source [Claude Code .mcp.json ▾]  [Browse]  [Preview]
+  [x] catalog-local   stdio   [Show command, arguments, directory and env names]
+  [x] catalog-remote  HTTP    [Show endpoint and credential requirements]
+  Unsupported entry  [View diagnostic]
+  [Cancel] [Import selected profiles]
+```
+
+For a rejected archive, show the relevant entry or limit and keep the project destination untouched. A successful connection import opens an inert profile. The next start or connection proceeds through permission review. Covered by V1-01 and V1-02. [Import contract](contracts.md#local-persistence-and-migration)
+
 ### Review permissions and launch trust
 
 ```text
