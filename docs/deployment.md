@@ -2,7 +2,7 @@
 
 Phase 0 · D4 · Sources checked 12 November 2026
 
-The Windows pilot ships the desktop builder and CLI for local stdio workflows. The proposed commercial v1 adds three desktop targets and two ways to run a generated HTTP server on Linux. The platform, package, toolchain and ingress choices below are candidates. F1/F2 prove the build inputs, M10 records the Windows pilot run, and R1/R2/R4/R5 establish release support from clean targets. [Product plan](../PLAN.md) · [Task backlog](../TASKS.md) · [Testing plan](testing.md)
+The Windows pilot ships the desktop builder and CLI for local stdio workflows. The proposed commercial v1 covers three desktop targets and two ways to run a generated HTTP server on Linux. The platform, package, toolchain and ingress choices below are candidates. F1/F2 prove the build inputs, M10 records the Windows pilot run, and R1/R2/R4/R5 establish release support from clean targets. [Product plan](../PLAN.md) · [Task backlog](../TASKS.md) · [Testing plan](testing.md)
 
 ## Proposed platform targets
 
