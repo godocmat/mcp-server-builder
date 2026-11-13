@@ -142,7 +142,7 @@ pub struct AdapterContext<'a> {
 pub(crate) struct TargetState {
     pub(crate) ceiling: ExecutionCeiling,
     pub(crate) denial: Option<DenyReason>,
-    pub(crate) peer_pending: bool,
+    pub(crate) pending_rest: Option<(RestRoute, bool)>,
 }
 
 #[derive(Default)]
@@ -181,7 +181,7 @@ impl AdapterContext<'_> {
                 operation: self.operation,
                 target,
             },
-            false,
+            None,
         )
     }
 
@@ -193,7 +193,7 @@ impl AdapterContext<'_> {
                 route,
                 redirected: true,
             },
-            true,
+            Some((route.clone(), true)),
         )
         .map(|_| ())
     }
@@ -201,7 +201,7 @@ impl AdapterContext<'_> {
     fn recheck(
         &self,
         action: Action<'_>,
-        peer_pending: bool,
+        pending_rest: Option<(RestRoute, bool)>,
     ) -> Result<ExecutionCeiling, DenyReason> {
         let mut state = self.state.lock().expect("execution target lock");
         if self.cancellation().is_cancelled() {
@@ -209,6 +209,18 @@ impl AdapterContext<'_> {
         }
         if let Some(reason) = state.denial {
             return Err(reason);
+        }
+        if let (Some((route, redirected)), Action::Adapter { target, .. }) =
+            (&state.pending_rest, &action)
+            && !matches!(
+                target,
+                VerifiedTarget::Rest { origin, method, path, redirected: actual_redirect, .. }
+                    if *origin == &route.origin && *method == route.method
+                        && *path == route.path && actual_redirect == redirected
+            )
+        {
+            state.denial = Some(DenyReason::InvalidTarget);
+            return Err(DenyReason::InvalidTarget);
         }
         let decision = self.policy.evaluate(&OperationContext {
             principal: self.principal,
@@ -227,7 +239,7 @@ impl AdapterContext<'_> {
                     self.deadline_changed.notify_one();
                 }
                 state.ceiling = next;
-                state.peer_pending = peer_pending;
+                state.pending_rest = pending_rest;
             }
             Err(reason) => {
                 state.denial = Some(reason);
@@ -278,6 +290,7 @@ impl AdapterContext<'_> {
         self.state
             .lock()
             .expect("execution target lock")
-            .peer_pending
+            .pending_rest
+            .is_some()
     }
 }

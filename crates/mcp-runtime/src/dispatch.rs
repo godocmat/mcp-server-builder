@@ -318,7 +318,10 @@ impl Runtime {
             state: Mutex::new(TargetState {
                 ceiling,
                 denial: None,
-                peer_pending: matches!(target, PreparedTarget::RestRoute(_)),
+                pending_rest: match target {
+                    PreparedTarget::Verified(_) => None,
+                    PreparedTarget::RestRoute(route) => Some((route.clone(), false)),
+                },
             }),
             progress: context.progress,
             progress_state: Default::default(),

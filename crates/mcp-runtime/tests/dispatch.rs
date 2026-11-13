@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use mcp_policy::{
     ApprovedGrant, CallerGrant, CallerIdentity, DenyReason, Effect, HttpMethod, HttpOrigin,
-    LimitOverrides, Operation, OperatorPolicy, VerifiedTarget,
+    LimitOverrides, Operation, OperatorPolicy, RestRoute, VerifiedTarget,
 };
 use mcp_runtime::{
     Adapter, AdapterBinding, AdapterContext, AdapterError, AdapterErrorKind, AdapterOutput,
@@ -131,8 +131,11 @@ impl Adapter for Fixture {
                         format!("/items/{id}")
                     };
                     Call::Tool {
-                        origin: ORIGIN.parse().unwrap(),
-                        path,
+                        route: RestRoute {
+                            origin: ORIGIN.parse().unwrap(),
+                            method: HttpMethod::Get,
+                            path,
+                        },
                         id,
                     }
                 }
@@ -153,11 +156,7 @@ impl Adapter for Fixture {
 }
 
 enum Call<'a> {
-    Tool {
-        origin: HttpOrigin,
-        path: String,
-        id: &'a str,
-    },
+    Tool { route: RestRoute, id: &'a str },
     File(String),
 }
 
@@ -179,7 +178,10 @@ fn rest_target<'a>(origin: &'a HttpOrigin, path: &'a str) -> VerifiedTarget<'a> 
 impl PreparedCall for Prepared<'_> {
     fn target(&self) -> PreparedTarget<'_> {
         PreparedTarget::Verified(match &self.call {
-            Call::Tool { origin, path, .. } => rest_target(origin, path),
+            Call::Tool { route, id } if id.starts_with("preflight-") => {
+                return PreparedTarget::RestRoute(route);
+            }
+            Call::Tool { route, .. } => rest_target(&route.origin, &route.path),
             Call::File(path) => VerifiedTarget::FileRead {
                 root_ref: "docs",
                 relative_path: path,
@@ -200,17 +202,32 @@ impl PreparedCall for Prepared<'_> {
                 Call::File(path) => return Ok(AdapterOutput::Resource { text: path.clone() }),
                 Call::Tool { id, .. } => *id,
             };
+            if let Call::Tool { route, .. } = &self.call
+                && matches!(id, "preflight-match" | "preflight-mismatch")
+            {
+                let path = if id == "preflight-match" {
+                    &route.path
+                } else {
+                    "/items/different"
+                };
+                let decision = context.authorize_target(&rest_target(&route.origin, path));
+                if id == "preflight-match" {
+                    assert!(decision.is_ok());
+                } else {
+                    assert_eq!(decision.unwrap_err(), DenyReason::InvalidTarget);
+                }
+            }
             if matches!(id, "slow" | "retarget-timeout") {
                 let _drop = OnDrop {
                     cancelled: context.cancellation(),
                     observed: &self.fixture.cancelled_before_drop,
                 };
-                if let Call::Tool { origin, .. } = &self.call
+                if let Call::Tool { route, .. } = &self.call
                     && id == "retarget-timeout"
                 {
                     let before = context.deadline();
                     let after = context
-                        .authorize_target(&rest_target(origin, "/items/narrow"))
+                        .authorize_target(&rest_target(&route.origin, "/items/narrow"))
                         .unwrap();
                     assert!(after.deadline < before);
                     assert_eq!(context.limits().max_output_bytes(), 64);
@@ -218,12 +235,12 @@ impl PreparedCall for Prepared<'_> {
                 self.fixture.started.notify_one();
                 pending::<()>().await;
             }
-            if let Call::Tool { origin, .. } = &self.call
+            if let Call::Tool { route, .. } = &self.call
                 && id == "retarget-denied"
             {
                 assert_eq!(
                     context
-                        .authorize_target(&rest_target(origin, "/outside/denied"))
+                        .authorize_target(&rest_target(&route.origin, "/outside/denied"))
                         .unwrap_err(),
                     DenyReason::TargetDenied
                 );
@@ -267,6 +284,26 @@ impl PreparedCall for Prepared<'_> {
             })
         })
     }
+}
+
+#[tokio::test]
+async fn preflight_requires_peer_authorization_for_the_same_route() {
+    let (runtime, _) = runtime();
+    let operator = Principal::Local { operator: OPERATOR };
+    let context = ExecutionContext::new(&operator, CancellationToken::new());
+    for id in ["preflight-mismatch", "preflight-no-peer"] {
+        let denied = runtime
+            .call_tool("lookup", object(json!({"id":id})), &context)
+            .await
+            .unwrap_err();
+        assert_eq!(denied.kind, ErrorKind::Denied);
+        assert_eq!(denied.denial, Some(DenyReason::InvalidTarget));
+    }
+    let output = runtime
+        .call_tool("lookup", object(json!({"id":"preflight-match"})), &context)
+        .await
+        .unwrap();
+    assert_eq!(output.structured_content.unwrap()["id"], "preflight-match");
 }
 
 struct OnDrop<'a> {
