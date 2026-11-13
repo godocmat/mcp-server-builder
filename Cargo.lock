@@ -2649,8 +2649,15 @@ dependencies = [
 name = "mcp-transport"
 version = "0.1.0"
 dependencies = [
+ "builder-project",
+ "mcp-policy",
  "mcp-runtime",
  "rmcp",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

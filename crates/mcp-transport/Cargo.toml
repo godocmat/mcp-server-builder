@@ -6,7 +6,15 @@ rust-version.workspace = true
 publish.workspace = true
 
 [features]
-server-stdio = ["dep:rmcp", "rmcp/server", "rmcp/transport-io"]
+server-stdio = [
+    "dep:rmcp",
+    "dep:serde_json",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:tracing",
+    "rmcp/server",
+    "rmcp/transport-io",
+]
 server-http = ["dep:rmcp", "rmcp/server", "rmcp/transport-streamable-http-server"]
 client-stdio = ["dep:rmcp", "rmcp/client", "rmcp/transport-child-process"]
 client-http-rustls = [
@@ -27,3 +35,18 @@ client-http-native-tls = [
 [dependencies]
 mcp-runtime.workspace = true
 rmcp = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "rt", "sync", "time"], optional = true }
+tokio-util = { version = "=0.7.20", optional = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+builder-project.workspace = true
+mcp-policy.workspace = true
+tokio = { version = "=1.54.1", features = ["process"] }
+tracing-subscriber.workspace = true
+
+[[test]]
+name = "stdio_wire"
+harness = false
+required-features = ["server-stdio"]
