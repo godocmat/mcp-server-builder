@@ -197,14 +197,11 @@ fn regeneration_preserves_reviewed_edits_and_refuses_stale_choices() {
             .iter()
             .any(|file| file.path == "README.md" && file.owner == FileOwner::Project)
     );
+    let mut original_bytes = serde_json::to_vec_pretty(&original).unwrap();
+    original_bytes.push(b'\n');
     assert_eq!(
         fs::read(first.destination.join(RECORD)).unwrap(),
-        serde_json::to_string_pretty(&original)
-            .unwrap()
-            .into_bytes()
-            .into_iter()
-            .chain([b'\n'])
-            .collect::<Vec<_>>()
+        original_bytes
     );
 
     let mut third = request(scratch.path(), "third");

@@ -12,7 +12,7 @@ cargo build --locked
 cargo test --locked
 ```
 
-Choose a new destination in an existing local directory. Generation stages beside the destination and rechecks the source immediately before publishing. Generation leaves build, test and launch as separate actions. The generated README describes launching the binary with a reviewed operator config. For nonempty approvals, bind the config to the manifest's exact SHA-256 revision. The no-config launch starts with an empty grant and prompt set. The config and any environment values belong to the operator. [Export contract](contracts.md#standalone-output-and-regeneration) · [Runtime policy](contracts.md#policy-approvals-and-credentials)
+Choose a new destination in an existing directory whose contents and permissions you control. Generation stages beside the destination and rechecks the source immediately before publishing. Windows publication uses local NTFS. Linux publication requires `openat2`, procfs and a local filesystem with no-replace directory rename support. Other platforms return a storage diagnostic before writing. The generated README describes building, testing and launching separately with a reviewed operator config. For nonempty approvals, bind the config to the manifest's exact SHA-256 revision. The no-config launch starts with an empty grant and prompt set. The config and any environment values belong to the operator. [Export contract](contracts.md#standalone-output-and-regeneration) · [Runtime policy](contracts.md#policy-approvals-and-credentials)
 
 ## Regenerate an edited export
 
@@ -21,7 +21,7 @@ mcp-builder generate .\project --out .\export-next --from-export .\export --prev
 mcp-builder generate .\project --out .\export-next --from-export .\export --resolutions .\resolutions.json
 ```
 
-The previous export stays usable. The generator carries its tracked project-owned files forward. Edited and removed generator-owned files appear in the preview, along with files added outside the previous generation record. Each resolution uses the preview's `path`, `observedDigest`, and `replacementDigest`. Use `keep` to publish the observed bytes under project ownership, or `regenerate` to use the current template. If a file has no template replacement, `regenerate` leaves it out of the new tree. Use JSON `null` for an absent digest. A changed observed file or changed replacement requires a new decision. Local runtime config, `.env` files, Git metadata and Cargo build output stay outside the regenerated export.
+The previous export stays usable. The generator carries its tracked project-owned files forward. Edited and removed generator-owned files appear in the preview, along with files added outside the previous generation record. Each resolution uses the preview's `path`, `observedDigest`, and `replacementDigest`. Use `keep` to publish the observed bytes under project ownership, or `regenerate` to use the current template. If a file has no template replacement, `regenerate` leaves it out of the new tree. Use JSON `null` for an absent digest. A changed observed file or changed replacement requires a new decision. Top-level local runtime config, `.env` files, Git metadata and Cargo build output stay outside the regenerated export. Keep any additional operator-only files outside the prior export or discard them at conflict review.
 
 ```json
 {
