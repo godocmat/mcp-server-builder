@@ -306,6 +306,13 @@ fn absolute_path(path: &Path) -> Result<PathBuf, ExportError> {
             {
                 resolved.push(prefix.as_os_str());
             }
+            #[cfg(windows)]
+            Component::Prefix(prefix)
+                if absolute
+                    && matches!(prefix.kind(), std::path::Prefix::Verbatim(name) if platform::is_volume_name(name)) =>
+            {
+                resolved.push(prefix.as_os_str());
+            }
             Component::RootDir if absolute => resolved.push(component.as_os_str()),
             Component::CurDir => {}
             Component::ParentDir if can_go_up && resolved.pop() => {}

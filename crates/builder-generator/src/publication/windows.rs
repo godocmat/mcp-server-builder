@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::windows::{
@@ -54,16 +54,20 @@ pub(super) struct Directory {
     file: File,
     // The real volume GUID path is independent of a subsequent DOS drive remap.
     access_path: PathBuf,
-    path: PathBuf,
     _ancestors: Vec<File>,
 }
 
 impl Directory {
     pub(super) fn open(path: &Path) -> Result<Self, ExportError> {
         let mut components = path.components();
-        let drive = match components.next() {
+        let volume = match components.next() {
             Some(Component::Prefix(prefix)) => match prefix.kind() {
-                Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => drive,
+                Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => volume_name(drive)?,
+                Prefix::Verbatim(name) if is_volume_name(name) => {
+                    let mut root = prefix.as_os_str().to_os_string();
+                    root.push(r"\");
+                    PathBuf::from(root)
+                }
                 _ => return Err(ExportError::UnsafePath),
             },
             _ => return Err(ExportError::UnsafePath),
@@ -71,7 +75,6 @@ impl Directory {
         if !matches!(components.next(), Some(Component::RootDir)) {
             return Err(ExportError::UnsafePath);
         }
-        let volume = volume_name(drive)?;
         let file = OpenOptions::new()
             .access_mode(DIRECTORY_ACCESS)
             .share_mode(VOLUME_SHARING)
@@ -91,7 +94,6 @@ impl Directory {
         let mut current = Self {
             file,
             access_path,
-            path: PathBuf::from(format!(r"\\?\{}:\", char::from(drive.to_ascii_uppercase()))),
             _ancestors: Vec::new(),
         };
         for component in components {
@@ -111,7 +113,7 @@ impl Directory {
     }
 
     pub(super) fn path(&self) -> &Path {
-        &self.path
+        &self.access_path
     }
 
     pub(super) fn access_path(&self) -> &Path {
@@ -155,7 +157,6 @@ impl Directory {
         if metadata.is_dir() {
             Ok(Node::Directory(Self {
                 file,
-                path: self.path.join(name),
                 access_path,
                 _ancestors: Vec::new(),
             }))
@@ -176,7 +177,6 @@ impl Directory {
         self.verify()?;
         stage.verify()?;
         let destination = self.access_path.join(name);
-        check_absent(&destination)?;
         if stage.access_path != self.access_path.join(stage_name) {
             return Err(ExportError::UnsafePath);
         }
@@ -280,6 +280,23 @@ fn volume_name(drive: u8) -> Result<PathBuf, ExportError> {
         .position(|&unit| unit == 0)
         .ok_or(ExportError::Storage)?;
     Ok(PathBuf::from(OsString::from_wide(&volume[..length])))
+}
+
+pub(super) fn is_volume_name(name: &OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let bytes = name.as_bytes();
+    if bytes.len() != 44 || !bytes[..7].eq_ignore_ascii_case(b"Volume{") || bytes[43] != b'}' {
+        return false;
+    }
+    bytes[7..43].iter().enumerate().all(|(index, &byte)| {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            byte == b'-'
+        } else {
+            byte.is_ascii_hexdigit()
+        }
+    })
 }
 
 fn volume_eq(left: &Path, right: &Path) -> bool {
