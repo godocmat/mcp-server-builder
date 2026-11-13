@@ -1,14 +1,75 @@
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
 
-use builder_project::{Capability, parse_manifest};
+use builder_project::{Capability, parse_manifest, runtime_definition};
 use mcp_policy::{
     Action, ApprovedGrant, CallerGrant, CallerIdentity, DenyReason, HttpMethod, Operation,
     OperationContext, OperatorPolicy, Policy, Principal, VerifiedTarget,
 };
+use mcp_runtime::{
+    Adapter, AdapterError, BoxFuture, Invocation, PreparationContext, PreparedCall, Runtime,
+};
+use serde_json::{Value, json};
 
 const CATALOG: &[u8] = include_bytes!("fixtures/catalog-v1.json");
 const OPERATOR: &str = "fixture-operator";
+
+struct NoAdapter;
+
+impl Adapter for NoAdapter {
+    fn prepare<'a>(
+        &'a self,
+        _invocation: Invocation<'a>,
+        _context: &'a PreparationContext,
+    ) -> BoxFuture<'a, Result<Box<dyn PreparedCall + 'a>, AdapterError>> {
+        panic!("constructing or listing a runtime must not prepare an adapter")
+    }
+}
+
+#[test]
+fn projects_schema_one_into_an_immutable_runtime_definition() {
+    let manifest = parse_manifest(CATALOG).unwrap();
+    let definition = runtime_definition(&manifest);
+    assert_eq!(definition.requested_policy, manifest.document().policy);
+    assert_eq!(definition.info.name, "catalog");
+    assert_eq!(definition.tools[0].binding.operation, Operation::HttpRead);
+    assert_eq!(
+        definition.tools[0].binding.timeout_ms,
+        NonZeroU64::new(2000)
+    );
+    assert_eq!(
+        definition.resources[0].binding.operation,
+        Operation::FileRead
+    );
+    assert_eq!(
+        definition.resource_templates[0].binding.operation,
+        Operation::FileRead
+    );
+    assert_eq!(
+        definition.resource_templates[0].variables["id"]["pattern"],
+        "^[0-9]+$"
+    );
+    assert_eq!(
+        definition.prompts[0].messages[0].text_template,
+        "Review catalog item {id}."
+    );
+    let runtime = Runtime::new(
+        definition,
+        OperatorPolicy::default(),
+        std::sync::Arc::new(NoAdapter),
+    )
+    .unwrap();
+    assert_eq!(runtime.info().name, "catalog");
+    assert!(!runtime.capabilities(&Principal::Anonymous).tools);
+
+    let mut document: Value = serde_json::from_slice(CATALOG).unwrap();
+    document["policy"]["grants"] = json!([]);
+    document["bindings"][0]["method"] = json!("POST");
+    document["scenarios"] = json!([]);
+    let manifest = parse_manifest(&serde_json::to_vec(&document).unwrap()).unwrap();
+    let definition = runtime_definition(&manifest);
+    assert_eq!(definition.tools[0].binding.operation, Operation::HttpWrite);
+}
 
 #[test]
 fn schema_one_policy_drives_the_shared_evaluator() {

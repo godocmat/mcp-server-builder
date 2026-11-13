@@ -189,11 +189,14 @@ impl Policy {
         }
         let caller = self.caller(context.principal, context.now)?;
         self.check_capability(caller, context.capability_id)?;
-        let limits = self.caller_limits(
+        let mut limits = self.caller_limits(
             caller,
             context.capability_timeout_ms,
             context.requested_limits,
         );
+        if let Some(previous) = context.ceiling {
+            limits = limits.intersect(previous.limits);
+        }
         let (grant_id, limits) = match context.action {
             Action::RenderPrompt
                 if self
@@ -211,7 +214,6 @@ impl Policy {
         let mut ceiling =
             call_ceiling(context.principal, limits, context.admitted_at, context.now)?;
         if let Some(previous) = context.ceiling {
-            ceiling.limits = ceiling.limits.intersect(previous.limits);
             ceiling.deadline = ceiling.deadline.min(previous.deadline);
             if context.now >= ceiling.deadline {
                 return Err(DenyReason::DeadlineExceeded);

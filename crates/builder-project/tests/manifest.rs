@@ -228,6 +228,7 @@ fn validates_schemas_offline_without_confusing_payload_data_with_refs() {
         json!({"type": "object", "$ref": "https://127.0.0.1/schema"}),
         json!({"type": "object", "$dynamicRef": "file:///tmp/secret.json"}),
         json!({"type": "object", "$schema": "http://json-schema.org/draft-07/schema#"}),
+        json!({"type": "object", "properties": {"id": {"type": "string", "x-mcp-header": "X-Item"}}}),
     ] {
         check_field(
             sample(),
@@ -237,8 +238,7 @@ fn validates_schemas_offline_without_confusing_payload_data_with_refs() {
         );
     }
     let mut input = sample();
-    input["capabilities"][0]["inputSchema"]["examples"] =
-        json!([{"$ref": "file:///fixture-data-not-a-schema"}]);
+    input["capabilities"][0]["inputSchema"]["examples"] = json!([{"$ref": "file:///fixture-data-not-a-schema", "x-mcp-header": "ordinary example data"}]);
     assert!(parse_manifest(&serde_json::to_vec(&input).unwrap()).is_ok());
 }
 
