@@ -46,4 +46,20 @@ cargo build --locked -p mcp-transport --no-default-features --features server-st
 
 The Windows tests run the actual transport and schema 1 runtime in a subprocess and drive raw JSON-RPC through its pipes. Six scenarios cover both versions, discovery and direct calls, tools and their schemas, concrete and expanded resource reads, prompts, policy-denial metadata, malformed and oversized frames, cancellation isolation, duplicate identifiers and progress tokens, a sibling timeout, and EOF with work in flight. They check stdout framing and scan stderr for a synthetic cancellation canary with SDK tracing requested. Three frame tests cover serialized output limits, queued and partially written frames during cancellation, and continued cancellation when request admission reaches its limit. [Wire harness](../crates/mcp-transport/tests/stdio_wire.rs) · [Frame tests](../crates/mcp-transport/src/stdio/frames/tests.rs)
 
-The server-side legacy fallback is exercised through an older offered version and the legacy initialization path. The client-side auto probe against legacy-only error and silence fixtures, and the recognized-modern-error path, still need raw client-side evidence. M4 owns HTTP and the SDK pin decision. [Compatibility matrix](mcp-compatibility.md#wire-tests-and-release-evidence)
+The server-side legacy fallback is exercised through an older offered version and the legacy initialization path. M4 owns HTTP and the SDK pin decision. [Compatibility matrix](mcp-compatibility.md#wire-tests-and-release-evidence)
+
+## M3 client auto discovery
+
+The `client-stdio` suite runs `rmcp` 3.9.0 `ClientLifecycleMode::Auto` against independent peers that read and write raw JSON-RPC over subprocess pipes. Windows x64 passed all six cases. [Client wire harness](../crates/mcp-transport/tests/stdio_client_auto.rs)
+
+| Peer behavior | Observed SDK behavior |
+| --- | --- |
+| Correlated method-not-found error or silence | Sent legacy `initialize` offering `2025-11-25`, then sent `notifications/initialized` and listed tools. The silent peer triggered fallback after 10.01 seconds. |
+| Recognized modern version error with a shared revision | Retried `server/discover` at `2026-07-28` and listed tools with modern request metadata. This fixture uses a test-only first preference to trigger the retry. |
+| Recognized modern version error with no shared revision or a required capability error | Surfaced the corresponding SDK error and closed the connection. The peer observed EOF before any `initialize` request. |
+| Legacy reply selecting `2025-03-26` | Accepted the older revision and sent `notifications/initialized` even though the offer was `2025-11-25`. The M7 playground client must verify the negotiated legacy revision and reject anything outside the product profile before using server capabilities. |
+
+```powershell
+cargo test --locked -p mcp-transport --no-default-features --features client-stdio
+cargo clippy --locked -p mcp-transport --no-default-features --features client-stdio --all-targets -- -D warnings
+```
