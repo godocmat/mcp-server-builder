@@ -37,6 +37,7 @@ node .github/ci/sdk-probes.mjs
 cargo test --locked -p mcp-transport --no-default-features --features server-stdio
 cargo clippy --locked -p mcp-transport --no-default-features --features server-stdio --all-targets -- -D warnings
 cargo test --locked -p mcp-transport --no-default-features --features client-stdio
+cargo clippy --locked -p mcp-transport --no-default-features --features client-stdio --all-targets -- -D warnings
 rustup component add llvm-tools-preview
 ./.github/ci/rust-coverage.ps1
 ```
