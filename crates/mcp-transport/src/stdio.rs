@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mcp_runtime::Runtime;
+use rmcp::ServiceExt;
 use rmcp::service::ServerInitializeError;
-use rmcp::{ServerHandler, ServiceExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
@@ -54,20 +54,38 @@ where
 async fn serve<R, W>(
     reader: R,
     writer: W,
-    handler: impl ServerHandler,
+    handler: handler::LocalHandler,
     disconnected: CancellationToken,
 ) -> io::Result<()>
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    let transport = frames::StdioTransport::new(reader, writer, disconnected.clone());
+    let (transport, writer_task) =
+        frames::StdioTransport::new(reader, writer, disconnected.clone());
     let wire = transport.wire();
     let _connection = disconnected.clone().drop_guard();
+    let result = wait_for_service(transport, handler, &disconnected).await;
+    wire.disconnect();
+    writer_task
+        .await
+        .map_err(|_| io::Error::other("MCP stdio writer failed."))?;
+    wire.io_result()?;
+    result
+}
+
+async fn wait_for_service<R>(
+    transport: frames::StdioTransport<R>,
+    handler: handler::LocalHandler,
+    disconnected: &CancellationToken,
+) -> io::Result<()>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
     let service = match handler.serve_with_ct(transport, disconnected.clone()).await {
         Ok(service) => service,
         Err(ServerInitializeError::ConnectionClosed(_) | ServerInitializeError::Cancelled) => {
-            return wire.io_result();
+            return Ok(());
         }
         Err(_) => return Err(io::Error::other("MCP stdio startup failed.")),
     };
@@ -80,11 +98,8 @@ where
                 .map_err(|_| io::Error::other("MCP stdio shutdown timed out."))?
         }
     };
-    wire.disconnect();
     match result {
-        Ok(rmcp::service::QuitReason::Closed | rmcp::service::QuitReason::Cancelled) => {
-            wire.io_result()
-        }
+        Ok(rmcp::service::QuitReason::Closed | rmcp::service::QuitReason::Cancelled) => Ok(()),
         _ => Err(io::Error::other("MCP stdio service failed.")),
     }
 }

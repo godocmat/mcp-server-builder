@@ -4,14 +4,20 @@ use std::sync::{Arc, Mutex};
 
 use rmcp::model::{
     ClientJsonRpcMessage, ClientNotification, ClientRequest, ErrorCode, GetMeta, NumberOrString,
-    ProgressToken, ProtocolVersion, RequestId, ServerJsonRpcMessage, ServerNotification,
+    ProgressToken, RequestId, ServerJsonRpcMessage, ServerNotification,
 };
 use rmcp::transport::Transport;
 use rmcp::{ErrorData, RoleServer};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
+use super::handler::{MODERN, SUPPORTED};
+
+#[cfg(test)]
+mod tests;
 
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
 const MAX_IN_FLIGHT: usize = 16;
@@ -35,17 +41,20 @@ impl<R: AsyncRead> StdioTransport<R> {
         reader: R,
         writer: impl AsyncWrite + Unpin + Send + 'static,
         disconnected: CancellationToken,
-    ) -> Self {
+    ) -> (Self, JoinHandle<()>) {
         let wire = Arc::new(Wire::new(disconnected));
         let (sender, receiver) = mpsc::channel(MAX_IN_FLIGHT);
-        tokio::spawn(write_frames(wire.clone(), writer, receiver));
-        Self {
-            reader: FrameReader::new(reader),
-            writer: sender,
-            pending_rejection: None,
-            wire,
-            lifecycle: Lifecycle::Undecided,
-        }
+        let task = tokio::spawn(write_frames(wire.clone(), writer, receiver));
+        (
+            Self {
+                reader: FrameReader::new(reader),
+                writer: sender,
+                pending_rejection: None,
+                wire,
+                lifecycle: Lifecycle::Undecided,
+            },
+            task,
+        )
     }
 
     pub(super) fn wire(&self) -> Arc<Wire> {
@@ -120,16 +129,12 @@ struct ActiveRequest {
 
 enum Admission {
     Accepted(i64),
-    DuplicateId,
     DuplicateProgress,
     Full,
 }
 
 impl ActiveRequests {
     fn admit(&mut self, id: &RequestId, progress: Option<ProgressToken>) -> Admission {
-        if self.requests.values().any(|request| request.id == *id) {
-            return Admission::DuplicateId;
-        }
         if progress.as_ref().is_some_and(|token| {
             self.requests
                 .values()
@@ -232,11 +237,8 @@ enum Lifecycle {
     Modern,
 }
 
-enum Incoming {
-    Forward(ClientJsonRpcMessage),
-    Reject(ErrorData, Option<RequestId>),
-    Ignore,
-}
+type Rejection = (ErrorData, Option<RequestId>);
+type Incoming = Result<Option<ClientJsonRpcMessage>, Rejection>;
 
 impl Lifecycle {
     fn validate_request(&mut self, request: &ClientRequest) -> Result<(), ErrorData> {
@@ -252,21 +254,19 @@ impl Lifecycle {
             }
             return Ok(());
         }
-        if method == "server/discover" || version.is_some() || *self == Self::Modern {
-            if !meta
-                .missing_required_keys(&ProtocolVersion::V_2026_07_28)
-                .is_empty()
-            {
+        let inline = method == "server/discover" || version.is_some() || *self == Self::Modern;
+        if inline {
+            if !meta.missing_required_keys(&MODERN).is_empty() {
                 return Err(ErrorData::invalid_params(
                     "Expected modern protocol version and client capabilities.",
                     None,
                 ));
             }
             let requested = version.as_ref().expect("validated protocol version");
-            if *requested != ProtocolVersion::V_2026_07_28 {
+            if *requested != MODERN {
                 return Err(ErrorData::unsupported_protocol_version(
                     requested.clone(),
-                    &[ProtocolVersion::V_2026_07_28, ProtocolVersion::V_2025_11_25],
+                    &SUPPORTED,
                 ));
             }
             if matches!(*self, Self::LegacyOpening | Self::Legacy) {
@@ -282,36 +282,39 @@ impl Lifecycle {
             ));
         }
 
-        if let ClientRequest::CustomRequest(_) = request {
-            if matches!(
-                method,
-                "initialize"
-                    | "ping"
-                    | "server/discover"
-                    | "tools/list"
-                    | "tools/call"
-                    | "resources/list"
-                    | "resources/templates/list"
-                    | "resources/read"
-                    | "prompts/list"
-                    | "prompts/get"
-            ) {
-                return Err(ErrorData::invalid_params("Invalid MCP parameters.", None));
+        match request {
+            ClientRequest::DiscoverRequest(_)
+            | ClientRequest::CallToolRequest(_)
+            | ClientRequest::ListToolsRequest(_)
+            | ClientRequest::ListResourcesRequest(_)
+            | ClientRequest::ListResourceTemplatesRequest(_)
+            | ClientRequest::ReadResourceRequest(_)
+            | ClientRequest::GetPromptRequest(_)
+            | ClientRequest::ListPromptsRequest(_) => Ok(()),
+            ClientRequest::PingRequest(_) if !inline => Ok(()),
+            ClientRequest::CustomRequest(_)
+                if matches!(
+                    method,
+                    "initialize"
+                        | "ping"
+                        | "server/discover"
+                        | "tools/list"
+                        | "tools/call"
+                        | "resources/list"
+                        | "resources/templates/list"
+                        | "resources/read"
+                        | "prompts/list"
+                        | "prompts/get"
+                ) =>
+            {
+                Err(ErrorData::invalid_params("Invalid MCP parameters.", None))
             }
-            return Err(ErrorData::new(
+            _ => Err(ErrorData::new(
                 ErrorCode::METHOD_NOT_FOUND,
                 "Unknown MCP method.",
                 None,
-            ));
+            )),
         }
-        if method == "ping" && (version.is_some() || *self == Self::Modern) {
-            return Err(ErrorData::new(
-                ErrorCode::METHOD_NOT_FOUND,
-                "Ping belongs to the legacy MCP lifecycle.",
-                None,
-            ));
-        }
-        Ok(())
     }
 
     fn accept(&mut self, request: &ClientRequest) {
@@ -334,11 +337,11 @@ fn bounded_identifier(id: &NumberOrString) -> bool {
 fn decode(bytes: &[u8], wire: &Wire, lifecycle: &mut Lifecycle) -> Incoming {
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
     if bytes.is_empty() {
-        return Incoming::Ignore;
+        return Ok(None);
     }
     let value: Value = match serde_json::from_slice(bytes) {
         Ok(value) => value,
-        Err(_) => return Incoming::Reject(ErrorData::parse_error("Invalid JSON.", None), None),
+        Err(_) => return Err((ErrorData::parse_error("Invalid JSON.", None), None)),
     };
     let id = value
         .get("id")
@@ -348,30 +351,30 @@ fn decode(bytes: &[u8], wire: &Wire, lifecycle: &mut Lifecycle) -> Incoming {
         .as_ref()
         .is_some_and(|id| wire.active.lock().unwrap().contains_wire_id(id))
     {
-        return Incoming::Reject(
+        return Err((
             ErrorData::invalid_request("MCP request identifier is already active.", None),
             None,
-        );
+        ));
     }
     let is_notification =
         value.get("id").is_none() && value.get("method").is_some_and(Value::is_string);
     let Ok(message) = serde_json::from_value::<ClientJsonRpcMessage>(value) else {
         return if is_notification {
-            Incoming::Ignore
+            Ok(None)
         } else {
-            Incoming::Reject(ErrorData::invalid_request("Invalid MCP message.", None), id)
+            Err((ErrorData::invalid_request("Invalid MCP message.", None), id))
         };
     };
     match message {
         ClientJsonRpcMessage::Request(mut request) => {
             if id.is_none() {
-                return Incoming::Reject(
+                return Err((
                     ErrorData::invalid_request("MCP request identifier is invalid.", None),
                     None,
-                );
+                ));
             }
             if let Err(error) = lifecycle.validate_request(&request.request) {
-                return Incoming::Reject(error, id);
+                return Err((error, id));
             }
             let meta = request.request.get_meta_mut();
             let progress = meta.get_progress_token();
@@ -380,10 +383,10 @@ fn decode(bytes: &[u8], wire: &Wire, lifecycle: &mut Lifecycle) -> Incoming {
                     .as_ref()
                     .is_some_and(|token| bounded_identifier(&token.0))
             {
-                return Incoming::Reject(
+                return Err((
                     ErrorData::invalid_params("MCP progress token is invalid.", None),
                     id,
-                );
+                ));
             }
             let has_progress = progress.is_some();
             let admission = wire.active.lock().unwrap().admit(&request.id, progress);
@@ -394,20 +397,16 @@ fn decode(bytes: &[u8], wire: &Wire, lifecycle: &mut Lifecycle) -> Incoming {
                         meta.set_progress_token(ProgressToken(NumberOrString::Number(internal_id)));
                     }
                     lifecycle.accept(&request.request);
-                    Incoming::Forward(ClientJsonRpcMessage::Request(request))
+                    Ok(Some(ClientJsonRpcMessage::Request(request)))
                 }
-                Admission::DuplicateId => Incoming::Reject(
-                    ErrorData::invalid_request("MCP request identifier is already active.", None),
-                    None,
-                ),
-                Admission::DuplicateProgress => Incoming::Reject(
+                Admission::DuplicateProgress => Err((
                     ErrorData::invalid_params("MCP progress token is already active.", None),
                     id,
-                ),
-                Admission::Full => Incoming::Reject(
+                )),
+                Admission::Full => Err((
                     ErrorData::internal_error("Too many active MCP requests.", None),
                     id,
-                ),
+                )),
             }
         }
         ClientJsonRpcMessage::Notification(mut notification) => {
@@ -421,7 +420,7 @@ fn decode(bytes: &[u8], wire: &Wire, lifecycle: &mut Lifecycle) -> Incoming {
                         .as_ref()
                         .and_then(|id| wire.active.lock().unwrap().cancel(id))
                     else {
-                        return Incoming::Ignore;
+                        return Ok(None);
                     };
                     cancelled.params.request_id = Some(NumberOrString::Number(internal_id));
                     cancelled.params.reason = None;
@@ -431,11 +430,11 @@ fn decode(bytes: &[u8], wire: &Wire, lifecycle: &mut Lifecycle) -> Incoming {
                 {
                     *lifecycle = Lifecycle::Legacy;
                 }
-                _ => return Incoming::Ignore,
+                _ => return Ok(None),
             }
-            Incoming::Forward(ClientJsonRpcMessage::Notification(notification))
+            Ok(Some(ClientJsonRpcMessage::Notification(notification)))
         }
-        ClientJsonRpcMessage::Response(_) | ClientJsonRpcMessage::Error(_) => Incoming::Ignore,
+        ClientJsonRpcMessage::Response(_) | ClientJsonRpcMessage::Error(_) => Ok(None),
     }
 }
 
@@ -477,10 +476,10 @@ where
             }
             let incoming = match self.reader.next().await {
                 Ok(Frame::Json(bytes)) => decode(bytes, &self.wire, &mut self.lifecycle),
-                Ok(Frame::Oversized) => Incoming::Reject(
+                Ok(Frame::Oversized) => Err((
                     ErrorData::invalid_request("MCP frame exceeds its byte limit.", None),
                     None,
-                ),
+                )),
                 Ok(Frame::Eof) => {
                     self.wire.disconnect();
                     return None;
@@ -492,9 +491,9 @@ where
             };
             self.reader.bytes.clear();
             match incoming {
-                Incoming::Forward(message) => return Some(message),
-                Incoming::Ignore => {}
-                Incoming::Reject(error, id) => {
+                Ok(Some(message)) => return Some(message),
+                Ok(None) => {}
+                Err((error, id)) => {
                     self.pending_rejection = Some(ServerJsonRpcMessage::error(error, id));
                 }
             }
