@@ -164,7 +164,8 @@ async fn granted_link_path_does_not_read_the_linked_file() {
         .await
         .unwrap()
         .unwrap_err();
-    assert_eq!(error.kind, ErrorKind::AdapterFailed);
+    assert_eq!(error.kind, ErrorKind::Denied);
+    assert_eq!(error.denial, Some(DenyReason::TargetDenied));
     assert!(!format!("{error:?} {error} {}", error.message()).contains(CANARY));
     assert_eq!(fs::read_to_string(outside).unwrap(), CANARY);
 }

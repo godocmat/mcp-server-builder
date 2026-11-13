@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use mcp_policy::{Effect, VerifiedTarget};
+use mcp_policy::{DenyReason, Effect, VerifiedTarget};
 use mcp_runtime::bindings::FileReadBinding;
 use mcp_runtime::syntax::{
     SegmentTemplate, expand_path, is_key, is_portable_path, is_portable_segment, render_path,
@@ -18,7 +18,7 @@ use mcp_runtime::{
 };
 use tokio::sync::Semaphore;
 
-use crate::{CancelPending, SetupError, failed, invalid_arguments, output_limit};
+use crate::{CancelPending, SetupError, denied, failed, invalid_arguments, output_limit};
 
 pub(super) struct Binding {
     root_ref: String,
@@ -134,15 +134,13 @@ impl PreparedCall for FileCall<'_> {
                     Ok(())
                 };
                 check_active()?;
-                let mut file = root.open_file(&path).map_err(|_| failed(Effect::None))?;
+                let mut file = root.open_file(&path).map_err(map_file_error)?;
                 let mut bytes = Vec::new();
                 let mut buffer = [0; 8192];
                 loop {
                     check_active()?;
                     let len = buffer.len().min(budget.remaining() as usize + 1);
-                    let count = file
-                        .read(&mut buffer[..len])
-                        .map_err(|_| failed(Effect::None))?;
+                    let count = file.read(&mut buffer[..len]).map_err(map_file_error)?;
                     if count == 0 {
                         break;
                     }
@@ -157,5 +155,13 @@ impl PreparedCall for FileCall<'_> {
             let text = read.await.map_err(|_| failed(Effect::None))??;
             Ok(AdapterOutput::Resource { text })
         })
+    }
+}
+
+fn map_file_error(error: std::io::Error) -> AdapterError {
+    if error.kind() == std::io::ErrorKind::PermissionDenied {
+        denied(DenyReason::TargetDenied, Effect::None)
+    } else {
+        failed(Effect::None)
     }
 }

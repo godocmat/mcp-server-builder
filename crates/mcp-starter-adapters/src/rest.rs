@@ -13,19 +13,21 @@ use http::header::{CONTENT_ENCODING, CONTENT_TYPE, LOCATION};
 use http::{HeaderMap, Response, StatusCode, Uri};
 use http_body_util::BodyExt;
 use hyper::body::{Body, Incoming};
-use mcp_policy::{Effect, ExecutionLimits, HttpMethod, HttpOrigin, RestRoute, VerifiedTarget};
+use mcp_policy::{
+    DenyReason, Effect, ExecutionLimits, HttpMethod, HttpOrigin, RestRoute, VerifiedTarget,
+};
 use mcp_runtime::bindings::{RestBinding, credential_header};
 use mcp_runtime::syntax::{SegmentTemplate, expand_path, render_path, segments, variables};
 use mcp_runtime::{
     AdapterContext, AdapterError, AdapterOutput, BoxFuture, PreparedCall, PreparedTarget,
 };
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::{Map, Value};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::{
-    CancelPending, SecretRequest, SecretResolver, SetupError, failed, invalid_arguments,
+    CancelPending, SecretRequest, SecretResolver, SetupError, denied, failed, invalid_arguments,
     output_limit,
 };
 
@@ -299,15 +301,10 @@ impl Call<'_> {
                 // Replaying a write or changing its method needs an idempotency
                 // contract. Only unchanged reads may follow a redirect.
                 if !route.method.is_read() || self.body.is_some() || hop == MAX_REDIRECTS {
-                    return Err(failed(effect));
+                    return Err(denied(DenyReason::RedirectDenied, effect));
                 }
                 let Some(path) = redirect_path(&route, response.headers()) else {
-                    return Err(AdapterError {
-                        kind: mcp_runtime::AdapterErrorKind::Denied(
-                            mcp_policy::DenyReason::RedirectDenied,
-                        ),
-                        effect,
-                    });
+                    return Err(denied(DenyReason::RedirectDenied, effect));
                 };
                 route.path = path;
                 context
@@ -356,24 +353,11 @@ fn authorize(
 // normalization so dot segments and ambiguous encodings cannot be rewritten.
 fn safe_path(path: &str) -> bool {
     path.len() <= MAX_PATH_BYTES
-        && path.starts_with('/')
-        && !path.contains("//")
+        && RestRoute::is_valid_path(path)
         && UriRef::parse(path).is_ok()
         && path
             .parse::<Uri>()
             .is_ok_and(|uri| uri.authority().is_none() && uri.path() == path)
-        && path.split('/').all(|part| {
-            part.match_indices('%').all(|(index, _)| {
-                part.as_bytes()
-                    .get(index + 1..index + 3)
-                    .is_some_and(|digits| digits.iter().all(u8::is_ascii_hexdigit))
-            }) && percent_decode_str(part).decode_utf8().is_ok_and(|decoded| {
-                !matches!(decoded.as_ref(), "." | "..")
-                    && !decoded
-                        .chars()
-                        .any(|ch| ch.is_control() || "/\\?#%;{}".contains(ch))
-            })
-        })
 }
 
 fn redirect_path(route: &RestRoute, headers: &HeaderMap) -> Option<String> {

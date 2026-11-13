@@ -8,7 +8,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mcp_policy::{Effect, HttpOrigin};
+use mcp_policy::{DenyReason, Effect, HttpOrigin};
 use mcp_runtime::bindings::StarterBinding;
 use mcp_runtime::{
     Adapter, AdapterError, AdapterErrorKind, BoxFuture, Invocation, InvocationInput,
@@ -164,6 +164,13 @@ fn invalid_arguments() -> AdapterError {
 fn output_limit(effect: Effect) -> AdapterError {
     AdapterError {
         kind: AdapterErrorKind::OutputLimit,
+        effect,
+    }
+}
+
+fn denied(reason: DenyReason, effect: Effect) -> AdapterError {
+    AdapterError {
+        kind: AdapterErrorKind::Denied(reason),
         effect,
     }
 }

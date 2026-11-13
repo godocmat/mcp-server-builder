@@ -278,6 +278,36 @@ async fn explicit_writes_send_only_the_declared_json_body() {
 }
 
 #[tokio::test]
+async fn an_approved_write_is_sent_once_and_reports_an_unknown_effect_on_redirect() {
+    let listener = bind().await;
+    let endpoint = origin(&listener);
+    let route = RestRoute {
+        origin: endpoint.parse().unwrap(),
+        method: mcp_policy::HttpMethod::Post,
+        path: "/items/next".into(),
+    };
+    let runtime = runtime(
+        manifest(&endpoint, "POST", "/items/{id}", true),
+        true,
+        vec![route],
+    );
+    let call = ExecutionContext::new(&LOCAL, CancellationToken::new());
+    let reply = response_once(
+        listener,
+        response("307 Temporary Redirect", "Location: /items/next\r\n", ""),
+    );
+    let error = runtime
+        .call_tool("fetch", arguments("start"), &call)
+        .await
+        .unwrap_err();
+    assert_eq!(error.denial, Some(DenyReason::RedirectDenied));
+    assert_eq!(error.effect, Effect::Unknown);
+    let (listener, request) = reply.await.unwrap();
+    assert!(request.starts_with("POST /items/start HTTP/1.1\r\n"));
+    quiet(&listener).await;
+}
+
+#[tokio::test]
 async fn redirects_are_default_off_and_only_explicit_same_origin_reads_follow() {
     let listener = bind().await;
     let outside = bind().await;

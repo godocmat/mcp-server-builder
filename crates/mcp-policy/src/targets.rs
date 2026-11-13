@@ -160,7 +160,12 @@ pub struct RestRoute {
 
 impl RestRoute {
     pub(crate) fn is_valid(&self) -> bool {
-        concrete_path(&self.path, PathKind::Http).is_ok()
+        Self::is_valid_path(&self.path)
+    }
+
+    /// Validate a concrete path before a live client uses it in an HTTP request.
+    pub fn is_valid_path(path: &str) -> bool {
+        concrete_path(path, PathKind::Http).is_ok()
     }
 }
 
