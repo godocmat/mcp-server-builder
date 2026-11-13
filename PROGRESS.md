@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-13 November 2026 · M4 loopback HTTP integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+13 November 2026 · M5 starter adapter integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -105,12 +105,18 @@ The opt-in `server-http` fixture serves the M3 runtime on ephemeral IPv4 loopbac
 
 Windows 11 x64 and Ubuntu 24.04.3 amd64 under WSL2 passed nine HTTP socket tests and two SDK Auto tests, feature Clippy and both stdio wire suites. Inspector CLI 2.15.0 passed discovery and tool calls on both revisions and both transports with Node 24.22.3 and 26.13.1 on each OS. The foundation workflow adds the server HTTP and Auto checks to the native matrix. [M4 verification and commands](docs/loopback-http.md#verification) · [CI commands](docs/ci.md#reproduce-the-checks)
 
+## M5 starter integration templates
+
+M5 integrated on `master` at `d82eda0`. Validated schema 1 REST tools and fixed and templated file resources now use the shared runtime and policy. The REST adapter checks the route before DNS and verifies the connected peer and TLS before resolving credentials. The file adapter reads from a pinned, operator-mapped root. M6 can bundle the shared adapters in standalone exports, and M7 can supply equivalent reviewed inputs for managed preview. [M5 integration and handoff](docs/starter-adapters.md)
+
+Windows 11 x64 passed 80 locked non-desktop workspace tests, including 28 starter adapter tests, plus 26 transport checks, all six SDK profiles, Clippy, formatting and CLI smoke. A separate Windows run verified a live public certificate chain with the bundled roots. The isolated Linux native-file harness passed on tmpfs and ext4, including refusal of casefolded directories. The integrated Linux runtime remains pending. macOS file mappings fail closed. [M5 verification](docs/starter-adapters.md#verification)
+
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
 | F2 · Foundation and platform | Record a hosted run on the three named workers, both coverage artifacts per worker, and the native trial outcome for each WebView. [F2 hosted handoff](docs/ci.md#first-hosted-run) |
-| M1/M2/M5–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries, Windows Job Objects and filesystem behavior, secret canaries, clean standalone build, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
+| M1/M2/M6–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries in generated and managed workflows, Windows Job Objects, secret canaries, clean standalone build, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
 | M7 · MCP | Enforce the selected legacy revision in the playground client and test stop and connection cleanup on the approved launch path. [Client negotiation evidence](docs/stdio-sdk-probe.md#m3-client-auto-discovery) |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |
 | V3/V4/V10 · OAuth and interoperability | Record actual provider, database and access-token settings, TLS and trust inputs, audience isolation, callback and refresh evidence, client registrations, and real client versions and wire outcomes. |
