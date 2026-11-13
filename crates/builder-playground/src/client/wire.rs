@@ -444,15 +444,30 @@ async fn write_pipe(
         _ = closing.cancelled() => {}
         _ = async {
             while let Some(item) = queue.recv().await {
-                if item.retired.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                // Before a frame starts, retirement can prevent dispatch.
+                // After the first byte, finish the frame so a targeted cancel
+                // can follow without corrupting any sibling's messages.
+                let first_write = match &item.retired {
+                    Some(retired) => tokio::select! {
+                        biased;
+                        _ = retired.cancelled() => None,
+                        written = write.write(&item.bytes) => Some(written),
+                    },
+                    None => Some(write.write(&item.bytes).await),
+                };
+                let Some(first_write) = first_write else {
                     let _ = item.done.send(Ok(()));
                     continue;
-                }
+                };
+                let Ok(written @ 1..) = first_write else {
+                    let _ = item.done.send(Err(WireError::Disconnected));
+                    break;
+                };
                 if item.context.method.is_some() {
                     trace.record(item.context, TraceDirection::Sent, item.kind, item.payload);
                 }
                 let result = async {
-                    write.write_all(&item.bytes).await?;
+                    write.write_all(&item.bytes[written..]).await?;
                     write.flush().await
                 }.await.map_err(|_| WireError::Disconnected);
                 let _ = item.done.send(result);
@@ -527,4 +542,107 @@ fn encode(message: &ClientJsonRpcMessage) -> Result<Vec<u8>, WireError> {
     serde_json::to_writer(&mut frame, message).map_err(|_| WireError::InvalidMessage)?;
     frame.push(b'\n');
     Ok(frame)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::time::{Duration, timeout};
+    use uuid::Uuid;
+
+    struct BlockFirstWrite {
+        waiting: Option<oneshot::Sender<()>>,
+        written: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl AsyncWrite for BlockFirstWrite {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            if let Some(waiting) = self.waiting.take() {
+                let _ = waiting.send(());
+                return Poll::Pending;
+            }
+            self.written.lock().unwrap().extend_from_slice(bytes);
+            Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn retires_blocked_frame_before_first_byte_without_affecting_sibling() {
+        let (waiting, blocked) = oneshot::channel();
+        let (writes, queue) = mpsc::channel(2);
+        let (closed, _) = watch::channel(false);
+        let closing = CancellationToken::new();
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let trace = Arc::new(TraceBuffer::new(false));
+        let writer = tokio::spawn(write_pipe(
+            BlockFirstWrite {
+                waiting: Some(waiting),
+                written: written.clone(),
+            },
+            queue,
+            trace.clone(),
+            closing.clone(),
+            closed,
+        ));
+        let retired = CancellationToken::new();
+        let first = TraceContext::new(Uuid::new_v4(), Some("tools/call"));
+        let sibling = TraceContext::new(Uuid::new_v4(), Some("tools/call"));
+        let (done, first_done) = oneshot::channel();
+        writes
+            .send(WriteItem {
+                bytes: b"first\n".to_vec(),
+                context: first,
+                kind: TraceKind::Request,
+                payload: TracePayload::None,
+                retired: Some(retired.clone()),
+                done,
+            })
+            .await
+            .ok()
+            .unwrap();
+        timeout(Duration::from_secs(5), blocked)
+            .await
+            .unwrap()
+            .unwrap();
+        retired.cancel();
+        let (done, sibling_done) = oneshot::channel();
+        writes
+            .send(WriteItem {
+                bytes: b"sibling\n".to_vec(),
+                context: sibling,
+                kind: TraceKind::Request,
+                payload: TracePayload::None,
+                retired: None,
+                done,
+            })
+            .await
+            .ok()
+            .unwrap();
+        timeout(Duration::from_secs(5), async {
+            first_done.await.unwrap().unwrap();
+            sibling_done.await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
+        closing.cancel();
+        writer.await.unwrap();
+        assert_eq!(&*written.lock().unwrap(), b"sibling\n");
+        let trace = trace.snapshot();
+        assert_eq!(trace.entries.len(), 1);
+        assert_eq!(trace.entries[0].correlation_id, sibling.correlation_id);
+    }
 }
