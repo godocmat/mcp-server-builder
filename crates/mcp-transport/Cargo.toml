@@ -43,10 +43,16 @@ tracing = { workspace = true, optional = true }
 [dev-dependencies]
 builder-project.workspace = true
 mcp-policy.workspace = true
-tokio = { version = "=1.54.1", features = ["process"] }
+serde_json.workspace = true
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "process", "rt", "time"] }
 tracing-subscriber.workspace = true
 
 [[test]]
 name = "stdio_wire"
 harness = false
 required-features = ["server-stdio"]
+
+[[test]]
+name = "stdio_client_auto"
+harness = false
+required-features = ["client-stdio"]
