@@ -23,6 +23,8 @@ jobs:
     name: Foundation (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      AWS_LC_SYS_PREBUILT_NASM: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -116,8 +118,6 @@ jobs:
         run: node .github/ci/cli-smoke.mjs
 
       - name: Check six locked rmcp profiles
-        env:
-          AWS_LC_SYS_PREBUILT_NASM: "1"
         run: node .github/ci/sdk-probes.mjs
 
       - name: Check MCP stdio over subprocess pipes
@@ -133,8 +133,6 @@ jobs:
           cargo clippy --locked -p mcp-transport --no-default-features --features client-stdio --all-targets -- -D warnings
 
       - name: Check MCP Streamable HTTP over loopback
-        env:
-          AWS_LC_SYS_PREBUILT_NASM: "1"
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           cargo test --locked -p mcp-transport --no-default-features --features server-http
