@@ -53,7 +53,7 @@ async fn auto_retries_the_real_modern_endpoint_at_a_supported_version() {
     let ClientInitializeError::NoCompatibleProtocolVersion {
         client_supported,
         server_supported,
-    } = error
+    } = *error
     else {
         panic!("expected incompatible modern versions, got {error:?}");
     };
@@ -118,7 +118,7 @@ async fn auto_falls_back_for_legacy_400s_and_surfaces_recognized_modern_errors()
                     _ => ErrorCode::MISSING_REQUIRED_CLIENT_CAPABILITY,
                 };
                 let error = result.unwrap_err();
-                let ClientInitializeError::JsonRpcError(error) = error else {
+                let ClientInitializeError::JsonRpcError(error) = *error else {
                     panic!("expected a recognized modern rejection, got {error:?}");
                 };
                 assert_eq!(error.code, code);
@@ -143,7 +143,7 @@ fn version(value: &str) -> ProtocolVersion {
 async fn connect(
     address: SocketAddr,
     preferred_versions: Vec<ProtocolVersion>,
-) -> Result<RunningService<RoleClient, ()>, ClientInitializeError> {
+) -> Result<RunningService<RoleClient, ()>, Box<ClientInitializeError>> {
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -165,6 +165,7 @@ async fn connect(
     )
     .await
     .expect("HTTP client startup timed out")
+    .map_err(Box::new)
 }
 
 async fn close(mut client: RunningService<RoleClient, ()>) {

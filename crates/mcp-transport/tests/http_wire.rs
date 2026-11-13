@@ -5,6 +5,8 @@ mod fixture;
 #[cfg(feature = "client-http-rustls")]
 #[path = "http_wire/client_auto.rs"]
 mod http_client_auto;
+#[path = "http_wire/sdk_probe.rs"]
+mod sdk_probe;
 
 use std::time::Duration;
 
