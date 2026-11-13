@@ -23,8 +23,8 @@ use windows_sys::Wdk::{
 };
 use windows_sys::Win32::{
     Foundation::{
-        INVALID_HANDLE_VALUE, OBJ_DONT_REPARSE, RtlNtStatusToDosError, STATUS_SUCCESS,
-        UNICODE_STRING,
+        INVALID_HANDLE_VALUE, OBJ_DONT_REPARSE, RtlNtStatusToDosError,
+        STATUS_REPARSE_POINT_ENCOUNTERED, STATUS_SUCCESS, UNICODE_STRING,
     },
     Storage::FileSystem::{
         FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE,
@@ -40,7 +40,7 @@ use windows_sys::Win32::{
     System::IO::IO_STATUS_BLOCK,
 };
 
-use super::{denied, valid_component};
+use super::{MAX_COMPONENTS, denied, valid_component};
 
 const DIRECTORY_ACCESS: u32 = FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
 const VOLUME_SHARING: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE;
@@ -145,7 +145,7 @@ fn root_components(path: &Path) -> io::Result<(u16, Vec<&str>)> {
     }
     let path = &path[3..];
     let names: Vec<_> = path.split_terminator(separators).collect();
-    if names.iter().any(|name| !valid_component(name)) {
+    if names.len() > MAX_COMPONENTS || names.iter().any(|name| !valid_component(name)) {
         return Err(io::ErrorKind::InvalidInput.into());
     }
     Ok((u16::from(drive.to_ascii_uppercase()), names))
@@ -375,6 +375,9 @@ fn normalized_name(file: &File) -> io::Result<Vec<u16>> {
 fn check_status(status: i32) -> io::Result<()> {
     if status == STATUS_SUCCESS {
         return Ok(());
+    }
+    if status == STATUS_REPARSE_POINT_ENCOUNTERED {
+        return Err(denied());
     }
     // SAFETY: Translating an NTSTATUS has no pointer or handle arguments.
     Err(io::Error::from_raw_os_error(

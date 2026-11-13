@@ -3,8 +3,12 @@
 //! Windows requires a real local NTFS drive mapping. Linux requires a trusted
 //! mount namespace and a kernel with openat2 and procfs. The operator controls
 //! the configured root and who can write to it.
+//! Requested paths are limited to 4096 UTF-8 bytes and 64 components.
 
 use std::{io, path::Path};
+
+const MAX_PATH_BYTES: usize = 4096;
+const MAX_COMPONENTS: usize = 64;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -40,14 +44,20 @@ impl Root {
     }
 
     pub(super) fn open_file(&self, relative: &str) -> io::Result<impl io::Read + Send + '_> {
-        if relative
-            .split('/')
-            .any(|name| !valid_component(name) || name.contains(['{', '}']))
-        {
-            return Err(io::ErrorKind::InvalidInput.into());
-        }
+        validate_relative(relative)?;
         self.0.open_file(relative)
     }
+}
+
+fn validate_relative(relative: &str) -> io::Result<()> {
+    if relative.len() > MAX_PATH_BYTES
+        || relative.split('/').enumerate().any(|(index, name)| {
+            index >= MAX_COMPONENTS || !valid_component(name) || name.contains(['{', '}'])
+        })
+    {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    Ok(())
 }
 
 fn valid_component(name: &str) -> bool {

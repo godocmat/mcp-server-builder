@@ -9,6 +9,27 @@ fn root_is_send_and_sync() {
     assert_send_sync::<Root>();
 }
 
+#[test]
+fn bounds_native_path_work() {
+    use super::{MAX_COMPONENTS, MAX_PATH_BYTES, validate_relative};
+    use std::io::ErrorKind;
+
+    let deepest = vec!["x"; MAX_COMPONENTS].join("/");
+    assert!(validate_relative(&deepest).is_ok());
+    assert_eq!(
+        validate_relative(&format!("{deepest}/x"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        validate_relative(&"x".repeat(MAX_PATH_BYTES + 1))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidInput
+    );
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn reads_exact_nested_name_and_rejects_unsupported_paths() {
@@ -130,6 +151,10 @@ fn refuses_a_rename_above_the_mapped_root_during_a_read() {
 fn refuses_real_ntfs_short_names() {
     use std::fs::OpenOptions;
     use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_NOT_SUPPORTED, ERROR_PRIVILEGE_NOT_HELD,
+        ERROR_SHORT_NAMES_NOT_ENABLED_ON_VOLUME,
+    };
     use windows_sys::Win32::Storage::FileSystem::{
         DELETE, FILE_FLAG_BACKUP_SEMANTICS, SetFileShortNameW,
     };
@@ -147,13 +172,29 @@ fn refuses_real_ntfs_short_names() {
     let name: Vec<u16> = short_name.encode_utf16().chain([0]).collect();
     // SAFETY: The handle belongs to the test fixture and the short name is NUL-terminated.
     let result = unsafe { SetFileShortNameW(handle.as_raw_handle(), name.as_ptr()) };
-    assert_ne!(result, 0, "{}", std::io::Error::last_os_error());
+    let setup_error = (result == 0).then(std::io::Error::last_os_error);
     drop(handle);
     let aliased_path = temp.path().join(short_name);
-    assert_eq!(fs::read_to_string(aliased_path).unwrap(), "approved");
+    if let Some(error) = setup_error {
+        assert!(
+            error.raw_os_error().is_some_and(|code| matches!(
+                code as u32,
+                ERROR_ACCESS_DENIED
+                    | ERROR_NOT_SUPPORTED
+                    | ERROR_PRIVILEGE_NOT_HELD
+                    | ERROR_SHORT_NAMES_NOT_ENABLED_ON_VOLUME
+            )),
+            "{error:?}"
+        );
+        eprintln!("Could not install the NTFS 8.3 fixture name on this host: {error}");
+        assert!(!aliased_path.exists());
+    } else {
+        assert_eq!(fs::read_to_string(aliased_path).unwrap(), "approved");
+    }
 
     let root = Root::open(temp.path()).unwrap();
     assert!(root.open_file(long_name).is_ok());
+    assert!(root.open_file(&long_name.to_ascii_lowercase()).is_err());
     assert!(root.open_file(short_name).is_err());
 }
 

@@ -10,12 +10,16 @@ use super::denied;
 
 const NO_LINKS: u64 = libc::RESOLVE_NO_SYMLINKS | libc::RESOLVE_NO_MAGICLINKS;
 const BENEATH_ROOT: u64 = NO_LINKS | libc::RESOLVE_BENEATH | libc::RESOLVE_NO_XDEV;
-const DIRECTORY_FLAGS: i32 = libc::O_DIRECTORY | libc::O_PATH | libc::O_CLOEXEC;
+const DIRECTORY_FLAGS: i32 = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+const PROC_DIRECTORY_FLAGS: i32 = DIRECTORY_FLAGS | libc::O_PATH;
+const FS_CASEFOLD_FL: libc::c_uint = 0x40000000;
+const FS_ENCRYPT_FL: libc::c_uint = 0x00000800;
 
 pub(super) struct Root {
     directory: File,
     name: Vec<u8>,
     proc_fds: File,
+    filesystem: libc::c_long,
 }
 
 impl Root {
@@ -25,7 +29,7 @@ impl Root {
             return Err(io::ErrorKind::InvalidInput.into());
         };
         let relative = relative.strip_suffix(b"/").unwrap_or(relative);
-        if (!relative.is_empty() || raw_path != b"/")
+        if raw_path != b"/"
             && relative
                 .split(|&byte| byte == b'/')
                 .any(|segment| matches!(segment, b"" | b"." | b".."))
@@ -34,17 +38,13 @@ impl Root {
         }
         let native_path = CString::new(raw_path).map_err(|_| io::ErrorKind::InvalidInput)?;
         let directory = open_at2(libc::AT_FDCWD, &native_path, DIRECTORY_FLAGS, NO_LINKS)?;
-        if !matches!(
-            filesystem_type(&directory)?,
-            libc::EXT4_SUPER_MAGIC
-                | libc::BTRFS_SUPER_MAGIC
-                | libc::TMPFS_MAGIC
-                | libc::XFS_SUPER_MAGIC
-        ) {
+        let filesystem = filesystem_type(&directory)?;
+        if !matches!(filesystem, libc::EXT4_SUPER_MAGIC | libc::TMPFS_MAGIC) {
             return Err(io::ErrorKind::Unsupported.into());
         }
+        check_directory_flags(&directory, filesystem)?;
 
-        let proc = open_at2(libc::AT_FDCWD, c"/proc", DIRECTORY_FLAGS, NO_LINKS)?;
+        let proc = open_at2(libc::AT_FDCWD, c"/proc", PROC_DIRECTORY_FLAGS, NO_LINKS)?;
         if filesystem_type(&proc)? != libc::PROC_SUPER_MAGIC {
             return Err(denied());
         }
@@ -53,31 +53,50 @@ impl Root {
         let proc_fds = open_at2(
             proc.as_raw_fd(),
             c"self/fd",
-            DIRECTORY_FLAGS,
+            PROC_DIRECTORY_FLAGS,
             libc::RESOLVE_BENEATH | libc::RESOLVE_NO_MAGICLINKS | libc::RESOLVE_NO_XDEV,
         )?;
         let name = descriptor_path(&proc_fds, &descriptor_name(&directory))?;
-        let expected = raw_path.strip_suffix(b"/").unwrap_or(raw_path);
-        if (name != expected && raw_path != b"/") || (raw_path == b"/" && name != b"/") {
+        let expected = if raw_path == b"/" {
+            raw_path
+        } else {
+            raw_path.strip_suffix(b"/").unwrap_or(raw_path)
+        };
+        if name != expected {
             return Err(denied());
         }
         Ok(Self {
             directory,
             name,
             proc_fds,
+            filesystem,
         })
     }
 
     pub(super) fn open_file(&self, relative: &str) -> io::Result<OpenedFile<'_>> {
-        let path = CString::new(relative).map_err(|_| io::ErrorKind::InvalidInput)?;
-        // O_PATH performs the constrained lookup without opening a device, FIFO or socket
-        // for data access. The descriptor pins the selected inode during validation.
-        let selected = open_at2(
-            self.directory.as_raw_fd(),
-            &path,
-            libc::O_PATH | libc::O_CLOEXEC,
-            BENEATH_ROOT,
-        )?;
+        // Check each actual parent directory. A casefolded directory may look up an alias
+        // even when the returned dentry name happens to match the spelling in the request.
+        let mut parent = None::<File>;
+        let mut components = relative.split('/').peekable();
+        let selected = loop {
+            let component = components.next().ok_or(io::ErrorKind::InvalidInput)?;
+            let name = CString::new(component).map_err(|_| io::ErrorKind::InvalidInput)?;
+            let directory = parent.as_ref().unwrap_or(&self.directory);
+            let is_leaf = components.peek().is_none();
+            let flags = if is_leaf {
+                // O_PATH resolves the name without opening a device, FIFO or socket for data.
+                libc::O_PATH | libc::O_CLOEXEC
+            } else {
+                DIRECTORY_FLAGS
+            };
+            check_directory_flags(directory, self.filesystem)?;
+            let child = open_at2(directory.as_raw_fd(), &name, flags, BENEATH_ROOT)?;
+            check_directory_flags(directory, self.filesystem)?;
+            if is_leaf {
+                break child;
+            }
+            parent = Some(child);
+        };
         let selected_metadata = selected.metadata()?;
         if !selected_metadata.is_file() || selected_metadata.nlink() != 1 {
             return Err(denied());
@@ -90,6 +109,18 @@ impl Root {
         expected.extend_from_slice(relative.as_bytes());
         let name = descriptor_name(&selected);
         if descriptor_path(&self.proc_fds, &name)? != expected {
+            return Err(denied());
+        }
+        // Verify the complete relative path is still beneath the approved root and resolves
+        // to the same file selected by the single-component walk.
+        let path = CString::new(relative).map_err(|_| io::ErrorKind::InvalidInput)?;
+        let resolved = open_at2(
+            self.directory.as_raw_fd(),
+            &path,
+            libc::O_PATH | libc::O_CLOEXEC,
+            BENEATH_ROOT,
+        )?;
+        if !same_file(&selected_metadata, &resolved.metadata()?) {
             return Err(denied());
         }
         // SAFETY: This opens the numeric descriptor entry of the live O_PATH file above,
@@ -111,10 +142,7 @@ impl Root {
         }
         // SAFETY: openat returned a new owned descriptor on success.
         let file = unsafe { File::from_raw_fd(fd) };
-        let opened_metadata = file.metadata()?;
-        if opened_metadata.dev() != selected_metadata.dev()
-            || opened_metadata.ino() != selected_metadata.ino()
-        {
+        if !same_file(&selected_metadata, &file.metadata()?) {
             return Err(denied());
         }
         let opened = OpenedFile {
@@ -155,6 +183,69 @@ impl Read for OpenedFile<'_> {
     }
 }
 
+fn check_directory_flags(file: &File, filesystem: libc::c_long) -> io::Result<()> {
+    let mut flags: libc::c_uint = 0;
+    // SAFETY: Linux FS_IOC_GETFLAGS writes a 32-bit flag value to the live output.
+    if unsafe { libc::ioctl(file.as_raw_fd(), libc::FS_IOC_GETFLAGS, &mut flags) } != 0 {
+        let error = io::Error::last_os_error();
+        // Older tmpfs kernels lack the flag API and cannot enable casefolded directories.
+        if filesystem == libc::TMPFS_MAGIC && error.raw_os_error() == Some(libc::ENOTTY) {
+            return Ok(());
+        }
+        return Err(error);
+    }
+    if flags & (FS_CASEFOLD_FL | FS_ENCRYPT_FL) != 0 {
+        return Err(denied());
+    }
+    Ok(())
+}
+
+fn same_file(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(test)]
+#[test]
+fn refuses_casefolded_directories_when_the_test_mount_supports_them() {
+    const FS_IOC_SETFLAGS: libc::Ioctl = libc::_IOW::<libc::c_long>('f' as u32, 2);
+
+    let temp = tempfile::tempdir().unwrap();
+    let casefolded = temp.path().join("casefolded");
+    std::fs::create_dir(&casefolded).unwrap();
+    let directory = File::open(&casefolded).unwrap();
+    let flags = FS_CASEFOLD_FL;
+    // SAFETY: The flag value is valid and the descriptor is a unique, empty test directory.
+    if unsafe { libc::ioctl(directory.as_raw_fd(), FS_IOC_SETFLAGS, &flags) } != 0 {
+        let error = io::Error::last_os_error();
+        assert!(
+            matches!(
+                error.raw_os_error(),
+                Some(libc::EOPNOTSUPP | libc::ENOTTY | libc::EINVAL)
+            ),
+            "{error:?}"
+        );
+        eprintln!("Test mount cannot set the casefold flag: {error}");
+        return;
+    }
+    std::fs::write(casefolded.join("Exact.txt"), b"synthetic fixture").unwrap();
+    assert_eq!(
+        std::fs::read(casefolded.join("exact.txt")).unwrap(),
+        b"synthetic fixture"
+    );
+
+    assert!(matches!(
+        Root::open(&casefolded),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+    ));
+    let root = Root::open(temp.path()).unwrap();
+    for name in ["casefolded/Exact.txt", "casefolded/exact.txt"] {
+        assert!(matches!(
+            root.open_file(name),
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+        ));
+    }
+}
+
 fn open_at2(directory: i32, path: &CStr, flags: i32, resolve: u64) -> io::Result<File> {
     // SAFETY: open_how contains only integer flags and fields.
     let mut how: libc::open_how = unsafe { std::mem::zeroed() };
@@ -171,7 +262,11 @@ fn open_at2(directory: i32, path: &CStr, flags: i32, resolve: u64) -> io::Result
         )
     };
     if fd < 0 {
-        return Err(io::Error::last_os_error());
+        let error = io::Error::last_os_error();
+        return Err(match error.raw_os_error() {
+            Some(libc::ELOOP | libc::EXDEV | libc::EAGAIN) => denied(),
+            _ => error,
+        });
     }
     // SAFETY: A successful openat2 returns a new owned file descriptor.
     Ok(unsafe { File::from_raw_fd(fd as i32) })
