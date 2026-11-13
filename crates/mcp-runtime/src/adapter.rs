@@ -78,6 +78,7 @@ pub struct AdapterError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdapterErrorKind {
     Failed,
+    FixtureMissing,
     InvalidArguments,
     OutputLimit,
     CredentialMissing,
@@ -90,6 +91,7 @@ impl AdapterErrorKind {
     pub(crate) fn runtime_kind(self) -> ErrorKind {
         match self {
             Self::Failed => ErrorKind::AdapterFailed,
+            Self::FixtureMissing => ErrorKind::FixtureMissing,
             Self::InvalidArguments => ErrorKind::InvalidArguments,
             Self::OutputLimit => ErrorKind::OutputLimit,
             Self::CredentialMissing => ErrorKind::CredentialMissing,
