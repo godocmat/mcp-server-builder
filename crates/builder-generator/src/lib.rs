@@ -140,9 +140,6 @@ fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
             ExportError::Storage if missing(&request.project_root) => ExportError::ProjectMissing,
             error => error,
         })?;
-    if destination.starts_with(&project_root) {
-        return Err(ExportError::UnsafePath);
-    }
     let source = read_manifest(&project_root)?;
     let manifest = parse_manifest(&source).map_err(ExportError::InvalidProject)?;
     let source_revision = manifest.revision();
@@ -169,10 +166,11 @@ fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
         (BTreeMap::new(), Vec::new())
     };
     publication::validate_paths(files.keys().map(String::as_str).chain([GENERATION_NAME]))?;
-    let generation = conflicts
-        .is_empty()
-        .then(|| GenerationRecord::new(&normalized, &files))
-        .transpose()?;
+    let generation = if conflicts.is_empty() {
+        Some(GenerationRecord::new(&normalized, &files)?)
+    } else {
+        None
+    };
     Ok(PreparedExport {
         destination,
         project_root,
