@@ -115,15 +115,22 @@ pub struct OperationContext<'a> {
 }
 
 /// A validated pair of immutable project and operator snapshots.
-pub struct Policy<'a> {
-    grants: BTreeMap<&'a str, (&'a Grant, &'a ApprovedGrant)>,
-    operator: &'a OperatorPolicy,
+pub struct Policy {
+    grants: BTreeMap<String, (Grant, usize)>,
+    operator: OperatorPolicy,
 }
 
-impl<'a> Policy<'a> {
+impl Policy {
     pub fn new(
-        requested: &'a RequestedPolicy,
-        operator: &'a OperatorPolicy,
+        requested: &RequestedPolicy,
+        operator: &OperatorPolicy,
+    ) -> Result<Self, PolicyInputError> {
+        Self::from_snapshots(requested, operator.clone())
+    }
+
+    pub fn from_snapshots(
+        requested: &RequestedPolicy,
+        operator: OperatorPolicy,
     ) -> Result<Self, PolicyInputError> {
         requested.validate()?;
         let requested_by_id: BTreeMap<_, _> = requested
@@ -133,14 +140,17 @@ impl<'a> Policy<'a> {
             .collect();
         let mut grants = BTreeMap::new();
         for (index, approved) in operator.approved_grants.iter().enumerate() {
-            let pair = validate_approval(&requested_by_id, approved)
+            let grant = validate_approval(&requested_by_id, approved)
                 .map_err(|error| error.at_grant("/approvedGrants", index))?;
-            if grants.insert(approved.grant.id.as_str(), pair).is_some() {
+            if grants
+                .insert(approved.grant.id.clone(), (grant.clone(), index))
+                .is_some()
+            {
                 return Err(PolicyInputError::new("/id", "policy.duplicate_approval")
                     .at_grant("/approvedGrants", index));
             }
         }
-        validate_callers(operator)?;
+        validate_callers(&operator)?;
         if !operator.approved_prompt_ids.iter().all(|id| is_key(id)) {
             return Err(PolicyInputError::new(
                 "/approvedPromptIds",
@@ -173,22 +183,17 @@ impl<'a> Policy<'a> {
             }
     }
 
-    pub fn evaluate(&self, context: &OperationContext<'_>) -> Result<Permit<'a>, DenyReason> {
+    pub fn evaluate(&self, context: &OperationContext<'_>) -> Result<Permit<'_>, DenyReason> {
         if context.admitted_at > context.now || !is_key(context.capability_id) {
             return Err(DenyReason::InvalidContext);
         }
         let caller = self.caller(context.principal, context.now)?;
-        if !caller.capability_ids.contains(context.capability_id) {
-            return Err(DenyReason::CapabilityDenied);
-        }
-
-        let mut limits = ExecutionLimits::for_capability(context.capability_timeout_ms)
-            .tighten(self.operator.limits)
-            .tighten(caller.limits)
-            .tighten(context.requested_limits);
-        if let Some(ceiling) = context.ceiling {
-            limits = limits.intersect(ceiling.limits);
-        }
+        self.check_capability(caller, context.capability_id)?;
+        let limits = self.caller_limits(
+            caller,
+            context.capability_timeout_ms,
+            context.requested_limits,
+        );
         let (grant_id, limits) = match context.action {
             Action::RenderPrompt
                 if self
@@ -203,23 +208,63 @@ impl<'a> Policy<'a> {
                 self.evaluate_adapter(context.capability_id, operation, target, caller, limits)?
             }
         };
-        let mut deadline = context
-            .admitted_at
-            .checked_add(limits.timeout())
-            .ok_or(DenyReason::InvalidContext)?;
-        if let Principal::Remote { expires_at, .. } = context.principal {
-            deadline = deadline.min(*expires_at);
+        let mut ceiling =
+            call_ceiling(context.principal, limits, context.admitted_at, context.now)?;
+        if let Some(previous) = context.ceiling {
+            ceiling.limits = ceiling.limits.intersect(previous.limits);
+            ceiling.deadline = ceiling.deadline.min(previous.deadline);
+            if context.now >= ceiling.deadline {
+                return Err(DenyReason::DeadlineExceeded);
+            }
         }
-        if let Some(ceiling) = context.ceiling {
-            deadline = deadline.min(ceiling.deadline);
+        Ok(Permit { grant_id, ceiling })
+    }
+
+    /// Bound inert preparation before a concrete target can be checked.
+    /// The returned ceiling conveys no permission to perform an adapter effect.
+    pub fn preparation_ceiling(
+        &self,
+        principal: &Principal<'_>,
+        capability_id: &str,
+        capability_timeout_ms: Option<NonZeroU64>,
+        requested_limits: LimitOverrides,
+        admitted_at: Instant,
+        now: Instant,
+    ) -> Result<ExecutionCeiling, DenyReason> {
+        let caller = self.caller(principal, now)?;
+        self.check_capability(caller, capability_id)?;
+        call_ceiling(
+            principal,
+            self.caller_limits(caller, capability_timeout_ms, requested_limits),
+            admitted_at,
+            now,
+        )
+    }
+
+    fn check_capability(
+        &self,
+        caller: &CallerGrant,
+        capability_id: &str,
+    ) -> Result<(), DenyReason> {
+        if !is_key(capability_id) {
+            return Err(DenyReason::InvalidContext);
         }
-        if context.now >= deadline {
-            return Err(DenyReason::DeadlineExceeded);
+        if !caller.capability_ids.contains(capability_id) {
+            return Err(DenyReason::CapabilityDenied);
         }
-        Ok(Permit {
-            grant_id,
-            ceiling: ExecutionCeiling { limits, deadline },
-        })
+        Ok(())
+    }
+
+    fn caller_limits(
+        &self,
+        caller: &CallerGrant,
+        timeout_ms: Option<NonZeroU64>,
+        limits: LimitOverrides,
+    ) -> ExecutionLimits {
+        ExecutionLimits::for_capability(timeout_ms)
+            .tighten(self.operator.limits)
+            .tighten(caller.limits)
+            .tighten(limits)
     }
 
     fn evaluate_adapter(
@@ -229,7 +274,7 @@ impl<'a> Policy<'a> {
         target: &VerifiedTarget<'_>,
         caller: &CallerGrant,
         mut limits: ExecutionLimits,
-    ) -> Result<(Option<&'a str>, ExecutionLimits), DenyReason> {
+    ) -> Result<(Option<&str>, ExecutionLimits), DenyReason> {
         if operation != Operation::from(target) {
             return Err(DenyReason::OperationMismatch);
         }
@@ -271,9 +316,10 @@ impl<'a> Policy<'a> {
         &self,
         capability_id: &str,
         operation: Operation,
-    ) -> impl Iterator<Item = (&'a Grant, &'a ApprovedGrant)> {
-        self.grants.values().copied().filter(move |(requested, _)| {
-            requested.capability_id == capability_id && requested.operation == operation
+    ) -> impl Iterator<Item = (&Grant, &ApprovedGrant)> {
+        self.grants.values().filter_map(move |(requested, index)| {
+            (requested.capability_id == capability_id && requested.operation == operation)
+                .then(|| (requested, &self.operator.approved_grants[*index]))
         })
     }
 
@@ -305,10 +351,31 @@ impl<'a> Policy<'a> {
     }
 }
 
+fn call_ceiling(
+    principal: &Principal<'_>,
+    limits: ExecutionLimits,
+    admitted_at: Instant,
+    now: Instant,
+) -> Result<ExecutionCeiling, DenyReason> {
+    if admitted_at > now {
+        return Err(DenyReason::InvalidContext);
+    }
+    let mut deadline = admitted_at
+        .checked_add(limits.timeout())
+        .ok_or(DenyReason::InvalidContext)?;
+    if let Principal::Remote { expires_at, .. } = principal {
+        deadline = deadline.min(*expires_at);
+    }
+    if now >= deadline {
+        return Err(DenyReason::DeadlineExceeded);
+    }
+    Ok(ExecutionCeiling { limits, deadline })
+}
+
 fn validate_approval<'a>(
     requested_by_id: &BTreeMap<&str, &'a Grant>,
-    approved: &'a ApprovedGrant,
-) -> Result<(&'a Grant, &'a ApprovedGrant), PolicyInputError> {
+    approved: &ApprovedGrant,
+) -> Result<&'a Grant, PolicyInputError> {
     approved.grant.validate()?;
     let requested = requested_by_id
         .get(approved.grant.id.as_str())
@@ -330,7 +397,7 @@ fn validate_approval<'a>(
             "policy.invalid_redirect",
         ));
     }
-    Ok((requested, approved))
+    Ok(requested)
 }
 
 fn validate_callers(operator: &OperatorPolicy) -> Result<(), PolicyInputError> {

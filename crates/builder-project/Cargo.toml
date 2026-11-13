@@ -9,7 +9,6 @@ publish.workspace = true
 fluent-uri = "=0.4.1"
 http = "=1.5.0"
 ipnet = "=2.12.2"
-jsonschema = { version = "=0.61.2", default-features = false }
 mcp-policy.workspace = true
 mcp-runtime.workspace = true
 mime = "=0.3.18"
