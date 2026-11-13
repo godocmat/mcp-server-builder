@@ -36,13 +36,14 @@ node .github/ci/cli-smoke.mjs
 node .github/ci/sdk-probes.mjs
 cargo test --locked -p mcp-transport --no-default-features --features server-stdio
 cargo clippy --locked -p mcp-transport --no-default-features --features server-stdio --all-targets -- -D warnings
+cargo test --locked -p mcp-transport --no-default-features --features client-stdio
 rustup component add llvm-tools-preview
 ./.github/ci/rust-coverage.ps1
 ```
 
 The Rust and Angular tests read the same [versioned fixture](../crates/builder-app/tests/fixtures/workspace-smoke.json). The CLI check exercises help, version, human success and rejection, JSON success, unsupported version and invalid options. It checks exits `0` and `2`, stdout and stderr, JSON version and fields, and correlation IDs against the Rust trace. The SDK script runs six locked builds of `mcp-transport` with `--no-default-features` and exactly one selection per invocation. It checks the resolved features for server stdio, server HTTP, their combination, client stdio and the two HTTP clients. The Rustls and native TLS builds each assert their own reqwest feature and the absence of the other. [F1 SDK feature graphs](development.md#mcp-sdk-build-probes)
 
-The M3 CI step selects `server-stdio` alone so the feature-gated subprocess tests run on each matrix worker. The harness exercises both MCP revisions through real stdin and stdout pipes. M4 covers loopback HTTP, and the Inspector trial supplies separate client evidence. [Wire and client interoperability](testing.md#wire-and-client-interoperability)
+The M3 CI checks select `server-stdio` and `client-stdio` in separate invocations. The server harness exercises both MCP revisions through real stdin and stdout pipes. The client harness runs the SDK auto negotiation against a raw JSON-RPC peer over subprocess pipes, including its ten-second fallback after a silent discovery probe. M4 covers loopback HTTP, and the Inspector trial supplies separate client evidence. [Wire and client interoperability](testing.md#wire-and-client-interoperability)
 
 Switch to Node `26.13.1` and bundled npm `11.20.0`. The alternate Angular check runs the same install, format, build and type checks with the ordinary test command. The Tauri CLI repeats the production Angular build hook and produces an embedded debug binary.
 
