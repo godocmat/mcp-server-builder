@@ -1,4 +1,8 @@
 //! Read-only native filesystem access for an operator-selected root.
+//!
+//! Windows requires a real local NTFS drive mapping. Linux requires a trusted
+//! mount namespace and a kernel with openat2 and procfs. The operator controls
+//! the configured root and who can write to it.
 
 use std::{io, path::Path};
 

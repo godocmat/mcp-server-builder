@@ -17,7 +17,9 @@ use windows_sys::Wdk::{
         FileStandardLinkInformation, NtCreateFile, NtQueryInformationFile,
         NtQueryVolumeInformationFile,
     },
-    System::SystemServices::{FILE_FS_DEVICE_INFORMATION, FILE_REMOTE_DEVICE},
+    System::SystemServices::{
+        FILE_FS_DEVICE_INFORMATION, FILE_REMOTE_DEVICE, FILE_REMOTE_DEVICE_VSMB,
+    },
 };
 use windows_sys::Win32::{
     Foundation::{
@@ -41,7 +43,7 @@ use windows_sys::Win32::{
 use super::{denied, valid_component};
 
 const DIRECTORY_ACCESS: u32 = FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
-const DIRECTORY_SHARING: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE;
+const VOLUME_SHARING: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE;
 const UNSUPPORTED_ATTRIBUTES: u32 = FILE_ATTRIBUTE_DEVICE
     | FILE_ATTRIBUTE_OFFLINE
     | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
@@ -60,7 +62,7 @@ impl Root {
         let volume = volume_name(drive)?;
         let directory = OpenOptions::new()
             .access_mode(DIRECTORY_ACCESS)
-            .share_mode(DIRECTORY_SHARING)
+            .share_mode(VOLUME_SHARING)
             .custom_flags(
                 FILE_FLAG_BACKUP_SEMANTICS
                     | FILE_FLAG_OPEN_REPARSE_POINT
@@ -70,14 +72,9 @@ impl Root {
         check_local_ntfs(&directory)?;
         check_type(&directory, true)?;
         let name = normalized_name(&directory)?;
-        if name.len() != volume.len()
-            || !name.iter().zip(&volume).all(|(&left, &right)| {
-                left == right
-                    || left <= 127
-                        && right <= 127
-                        && (left as u8).eq_ignore_ascii_case(&(right as u8))
-            })
-        {
+        let opened_volume = String::from_utf16(&name).map_err(|_| denied())?;
+        let mapped_volume = String::from_utf16(&volume).map_err(|_| denied())?;
+        if !opened_volume.eq_ignore_ascii_case(&mapped_volume) {
             return Err(denied());
         }
 
@@ -103,6 +100,7 @@ impl Root {
             if !directory {
                 return Ok(OpenedFile {
                     file,
+                    name: full_name,
                     _ancestors: ancestors,
                     _root: &self.directory,
                 });
@@ -116,6 +114,7 @@ impl Root {
 
 pub(super) struct OpenedFile<'a> {
     file: File,
+    name: Vec<u16>,
     _ancestors: Vec<File>,
     _root: &'a File,
 }
@@ -124,6 +123,10 @@ impl Read for OpenedFile<'_> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         check_type(&self.file, false)?;
         check_single_link(&self.file)?;
+        // Higher directories outside the mapped root need not stay open for its lifetime.
+        if normalized_name(&self.file)? != self.name {
+            return Err(denied());
+        }
         self.file.read(buffer)
     }
 }
@@ -141,10 +144,7 @@ fn root_components(path: &Path) -> io::Result<(u16, Vec<&str>)> {
         return Err(io::ErrorKind::InvalidInput.into());
     }
     let path = &path[3..];
-    let mut names: Vec<_> = path.split_terminator(separators).collect();
-    if path.is_empty() {
-        names.clear();
-    }
+    let names: Vec<_> = path.split_terminator(separators).collect();
     if names.iter().any(|name| !valid_component(name)) {
         return Err(io::ErrorKind::InvalidInput.into());
     }
@@ -184,7 +184,7 @@ fn check_local_ntfs(file: &File) -> io::Result<()> {
     check_status(result)?;
     if status.Information != size_of::<FILE_FS_DEVICE_INFORMATION>()
         || device.DeviceType != FILE_DEVICE_DISK
-        || device.Characteristics & FILE_REMOTE_DEVICE != 0
+        || device.Characteristics & (FILE_REMOTE_DEVICE | FILE_REMOTE_DEVICE_VSMB) != 0
     {
         return Err(denied());
     }
@@ -232,14 +232,14 @@ fn open_child(
         Attributes: OBJ_DONT_REPARSE,
         ..Default::default()
     };
-    let (access, share, options) = if directory {
+    // Deny write and delete sharing while this descendant handle remains open.
+    let (access, options) = if directory {
         // The native directory-only option conflicts with no-reparse options. Verify the
         // directory attribute on the same handle before using it as a parent.
-        (DIRECTORY_ACCESS, DIRECTORY_SHARING, 0)
+        (DIRECTORY_ACCESS, 0)
     } else {
         (
             FILE_READ_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-            FILE_SHARE_READ,
             FILE_NON_DIRECTORY_FILE,
         )
     };
@@ -257,7 +257,7 @@ fn open_child(
             &mut status,
             null(),
             0,
-            share,
+            FILE_SHARE_READ,
             FILE_OPEN,
             options | FILE_OPEN_REPARSE_POINT | FILE_OPEN_NO_RECALL | FILE_SYNCHRONOUS_IO_NONALERT,
             null(),
@@ -365,7 +365,7 @@ fn normalized_name(file: &File) -> io::Result<Vec<u16>> {
             name.truncate(length);
             return Ok(name);
         }
-        if length <= name.len() || length > 32_768 {
+        if length == name.len() || length > 32_768 {
             return Err(denied());
         }
         name.resize(length, 0);

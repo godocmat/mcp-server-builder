@@ -1,3 +1,4 @@
+#[cfg(any(windows, target_os = "linux"))]
 use std::{fs, io::Read};
 
 use super::Root;
@@ -85,6 +86,96 @@ fn opens_verbatim_drive_roots_and_pins_open_directories() {
     fs::rename(&nested, temp.path().join("moved")).unwrap();
     drop(root);
     fs::rename(&approved, temp.path().join("moved root")).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn refuses_a_rename_above_the_mapped_root_during_a_read() {
+    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION};
+
+    let temp = tempfile::tempdir().unwrap();
+    let parent = temp.path().join("parent");
+    let approved = parent.join("approved");
+    let moved = temp.path().join("moved");
+    fs::create_dir_all(&approved).unwrap();
+    fs::write(approved.join("data.txt"), "original").unwrap();
+    let root = Root::open(&approved).unwrap();
+    let mut file = root.open_file("data.txt").unwrap();
+
+    // NTFS normally refuses to rename a directory containing an open file.
+    match fs::rename(&parent, &moved) {
+        Ok(()) => assert!(file.read(&mut [0u8; 64]).is_err()),
+        Err(error) => {
+            assert!(
+                error.raw_os_error().is_some_and(|code| matches!(
+                    code as u32,
+                    ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION
+                )),
+                "{error:?}"
+            );
+            let mut content = String::new();
+            file.read_to_string(&mut content).unwrap();
+            assert_eq!(content, "original");
+        }
+    }
+    drop(file);
+    drop(root);
+    if parent.exists() {
+        fs::rename(&parent, &moved).unwrap();
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn refuses_real_ntfs_short_names() {
+    use std::fs::OpenOptions;
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_BACKUP_SEMANTICS, SetFileShortNameW,
+    };
+
+    let temp = tempfile::tempdir().unwrap();
+    let long_name = "Fixture with a separate short alias.txt";
+    let short_name = "FIXALIAS.TXT";
+    let file = temp.path().join(long_name);
+    fs::write(&file, "approved").unwrap();
+    let handle = OpenOptions::new()
+        .access_mode(DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(&file)
+        .unwrap();
+    let name: Vec<u16> = short_name.encode_utf16().chain([0]).collect();
+    // SAFETY: The handle belongs to the test fixture and the short name is NUL-terminated.
+    let result = unsafe { SetFileShortNameW(handle.as_raw_handle(), name.as_ptr()) };
+    assert_ne!(result, 0, "{}", std::io::Error::last_os_error());
+    drop(handle);
+    let aliased_path = temp.path().join(short_name);
+    assert_eq!(fs::read_to_string(aliased_path).unwrap(), "approved");
+
+    let root = Root::open(temp.path()).unwrap();
+    assert!(root.open_file(long_name).is_ok());
+    assert!(root.open_file(short_name).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn rejects_a_second_link_created_after_open() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("original.txt");
+    let link = temp.path().join("link.txt");
+    fs::write(&file, "approved").unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let mut opened = root.open_file("original.txt").unwrap();
+    if fs::hard_link(&file, &link).is_ok() {
+        assert!(opened.read(&mut [0u8; 64]).is_err());
+    } else {
+        assert_eq!(opened.read(&mut [0u8; 64]).unwrap(), 8);
+        drop(opened);
+        drop(root);
+        fs::hard_link(&file, &link).unwrap();
+        let root = Root::open(temp.path()).unwrap();
+        assert!(root.open_file("original.txt").is_err());
+    }
 }
 
 #[cfg(windows)]
