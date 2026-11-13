@@ -72,7 +72,19 @@ impl HttpOrigin {
             .expect("validated HTTP(S) origin")
     }
 
-    fn literal_ip(&self) -> Option<IpAddr> {
+    /// The canonical DNS name or unbracketed numeric address for DNS and TLS.
+    pub fn host(&self) -> &str {
+        let host = self.0.host_str().expect("validated HTTP(S) origin");
+        host.strip_prefix('[')
+            .and_then(|host| host.strip_suffix(']'))
+            .unwrap_or(host)
+    }
+
+    pub fn authority(&self) -> &str {
+        &self.0[url::Position::BeforeHost..url::Position::AfterPort]
+    }
+
+    pub fn literal_ip(&self) -> Option<IpAddr> {
         let host = self.0.host()?;
         match host {
             Host::Ipv4(ip) => Some(ip.into()),

@@ -12,8 +12,8 @@ use crate::execution::{json_depth_is_bounded, serialized_len};
 use crate::syntax::ResourceAddress;
 use crate::{
     AdapterBinding, AdapterContext, AdapterOutput, CancellationToken, ErrorKind, ExecutionContext,
-    Invocation, InvocationInput, PreparationContext, PromptMessage, PromptResult, ResourceContent,
-    ResourceResult, Runtime, RuntimeError, TextContent, ToolResult, prompt,
+    Invocation, InvocationInput, PreparationContext, PreparedTarget, PromptMessage, PromptResult,
+    ResourceContent, ResourceResult, Runtime, RuntimeError, TextContent, ToolResult, prompt,
 };
 
 impl Runtime {
@@ -277,7 +277,7 @@ impl Runtime {
         )
         .await
         .map_err(|kind| context.error(kind, Effect::None))?
-        .map_err(|_| context.error(ErrorKind::AdapterFailed, Effect::None))?;
+        .map_err(|error| context.error(error.kind.into(), Effect::None))?;
         check_finished(context, ceiling, Effect::None)?;
         let target = prepared.target();
         let ceiling = self
@@ -285,9 +285,16 @@ impl Runtime {
             .evaluate(&OperationContext {
                 principal: context.principal,
                 capability_id,
-                action: Action::Adapter {
-                    operation: binding.operation,
-                    target: &target,
+                action: match &target {
+                    PreparedTarget::Verified(target) => Action::Adapter {
+                        operation: binding.operation,
+                        target,
+                    },
+                    PreparedTarget::RestRoute(route) => Action::PreflightRest {
+                        operation: binding.operation,
+                        route,
+                        redirected: false,
+                    },
                 },
                 capability_timeout_ms: binding.timeout_ms,
                 requested_limits: context.limits,
@@ -310,6 +317,7 @@ impl Runtime {
             state: Mutex::new(TargetState {
                 ceiling,
                 denial: None,
+                peer_pending: matches!(target, PreparedTarget::RestRoute(_)),
             }),
             progress: context.progress,
             progress_state: Default::default(),
@@ -346,9 +354,15 @@ impl Runtime {
                 ..context.denial(reason)
             });
         }
+        if output.is_ok() && execution.peer_pending() {
+            return Err(RuntimeError {
+                effect,
+                ..context.denial(mcp_policy::DenyReason::InvalidTarget)
+            });
+        }
         output
             .map(|output| (output, ceiling))
-            .map_err(|_| context.error(ErrorKind::AdapterFailed, effect))
+            .map_err(|error| context.error(error.kind.into(), effect))
     }
 }
 

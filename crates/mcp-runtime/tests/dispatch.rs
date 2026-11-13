@@ -10,12 +10,12 @@ use mcp_policy::{
     LimitOverrides, Operation, OperatorPolicy, VerifiedTarget,
 };
 use mcp_runtime::{
-    Adapter, AdapterBinding, AdapterContext, AdapterError, AdapterOutput, BoxFuture,
-    CancellationToken, DefinitionErrorKind, ErrorKind, ExecutionContext, Invocation,
-    InvocationInput, PreparationContext, PreparedCall, Principal, Progress, ProgressSink,
-    PromptArgument, PromptDefinition, PromptInfo, PromptTemplateMessage, ResourceDefinition,
-    ResourceInfo, ResourceTemplateDefinition, ResourceTemplateInfo, Role, Runtime,
-    ServerDefinition, ServerInfo, ToolDefinition, ToolInfo,
+    Adapter, AdapterBinding, AdapterContext, AdapterError, AdapterErrorKind, AdapterOutput,
+    BoxFuture, CancellationToken, DefinitionErrorKind, ErrorKind, ExecutionContext, Invocation,
+    InvocationInput, PreparationContext, PreparedCall, PreparedTarget, Principal, Progress,
+    ProgressSink, PromptArgument, PromptDefinition, PromptInfo, PromptTemplateMessage,
+    ResourceDefinition, ResourceInfo, ResourceTemplateDefinition, ResourceTemplateInfo, Role,
+    Runtime, ServerDefinition, ServerInfo, ToolDefinition, ToolInfo,
 };
 use serde_json::{Map, Value, json};
 use tokio::sync::Notify;
@@ -177,14 +177,14 @@ fn rest_target<'a>(origin: &'a HttpOrigin, path: &'a str) -> VerifiedTarget<'a> 
 }
 
 impl PreparedCall for Prepared<'_> {
-    fn target(&self) -> VerifiedTarget<'_> {
-        match &self.call {
+    fn target(&self) -> PreparedTarget<'_> {
+        PreparedTarget::Verified(match &self.call {
             Call::Tool { origin, path, .. } => rest_target(origin, path),
             Call::File(path) => VerifiedTarget::FileRead {
                 root_ref: "docs",
                 relative_path: path,
             },
-        }
+        })
     }
 
     fn execute<'a>(
@@ -228,6 +228,7 @@ impl PreparedCall for Prepared<'_> {
                     DenyReason::TargetDenied
                 );
                 return Err(AdapterError {
+                    kind: AdapterErrorKind::Failed,
                     effect: Effect::None,
                 });
             }

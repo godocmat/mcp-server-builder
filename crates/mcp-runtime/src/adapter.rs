@@ -5,12 +5,12 @@ use std::time::{Duration, Instant};
 
 use mcp_policy::{
     Action, DenyReason, Effect, ExecutionCeiling, ExecutionLimits, LimitOverrides, Operation,
-    OperationContext, Policy, VerifiedTarget,
+    OperationContext, Policy, RestRoute, VerifiedTarget,
 };
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::{BoxFuture, CancellationToken, Principal, Progress, ProgressSink};
+use crate::{BoxFuture, CancellationToken, ErrorKind, Principal, Progress, ProgressSink};
 
 /// Trusted adapter code prepares and retains the same target that it will use. Preparation
 /// does not resolve credentials or perform the requested read, mutation or command.
@@ -23,7 +23,7 @@ pub trait Adapter: Send + Sync {
 }
 
 pub trait PreparedCall: Send {
-    fn target(&self) -> VerifiedTarget<'_>;
+    fn target(&self) -> PreparedTarget<'_>;
 
     /// Use the prepared target only after admission. Any changed target requires
     /// `authorize_target` before effects, with the previous deadline and limits retained.
@@ -34,6 +34,13 @@ pub trait PreparedCall: Send {
     ) -> BoxFuture<'a, Result<AdapterOutput, AdapterError>>
     where
         Self: 'a;
+}
+
+/// A REST route allows DNS resolution after route admission. The adapter must
+/// authorize the concrete peer before using the connection.
+pub enum PreparedTarget<'a> {
+    Verified(VerifiedTarget<'a>),
+    RestRoute(&'a RestRoute),
 }
 
 pub struct Invocation<'a> {
@@ -64,7 +71,27 @@ pub enum AdapterOutput {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AdapterError {
+    pub kind: AdapterErrorKind,
     pub effect: Effect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdapterErrorKind {
+    Failed,
+    InvalidArguments,
+    OutputLimit,
+    CredentialMissing,
+}
+
+impl From<AdapterErrorKind> for ErrorKind {
+    fn from(kind: AdapterErrorKind) -> Self {
+        match kind {
+            AdapterErrorKind::Failed => Self::AdapterFailed,
+            AdapterErrorKind::InvalidArguments => Self::InvalidArguments,
+            AdapterErrorKind::OutputLimit => Self::OutputLimit,
+            AdapterErrorKind::CredentialMissing => Self::CredentialMissing,
+        }
+    }
 }
 
 pub struct PreparationContext {
@@ -109,6 +136,7 @@ pub struct AdapterContext<'a> {
 pub(crate) struct TargetState {
     pub(crate) ceiling: ExecutionCeiling,
     pub(crate) denial: Option<DenyReason>,
+    pub(crate) peer_pending: bool,
 }
 
 #[derive(Default)]
@@ -118,6 +146,10 @@ pub(crate) struct ProgressState {
 }
 
 impl AdapterContext<'_> {
+    pub fn principal(&self) -> &Principal<'_> {
+        self.principal
+    }
+
     pub fn deadline(&self) -> Instant {
         self.current_ceiling().deadline
     }
@@ -138,6 +170,33 @@ impl AdapterContext<'_> {
         &self,
         target: &VerifiedTarget<'_>,
     ) -> Result<ExecutionCeiling, DenyReason> {
+        self.recheck(
+            Action::Adapter {
+                operation: self.operation,
+                target,
+            },
+            false,
+        )
+    }
+
+    /// Check a proposed redirect before DNS. Authorize its actual peer separately.
+    pub fn preflight_redirect(&self, route: &RestRoute) -> Result<(), DenyReason> {
+        self.recheck(
+            Action::PreflightRest {
+                operation: self.operation,
+                route,
+                redirected: true,
+            },
+            true,
+        )
+        .map(|_| ())
+    }
+
+    fn recheck(
+        &self,
+        action: Action<'_>,
+        peer_pending: bool,
+    ) -> Result<ExecutionCeiling, DenyReason> {
         let mut state = self.state.lock().expect("execution target lock");
         if self.cancellation().is_cancelled() {
             return Err(DenyReason::InvalidContext);
@@ -148,10 +207,7 @@ impl AdapterContext<'_> {
         let decision = self.policy.evaluate(&OperationContext {
             principal: self.principal,
             capability_id: self.capability_id,
-            action: Action::Adapter {
-                operation: self.operation,
-                target,
-            },
+            action,
             capability_timeout_ms: self.timeout_ms,
             requested_limits: self.requested_limits,
             ceiling: Some(state.ceiling),
@@ -165,6 +221,7 @@ impl AdapterContext<'_> {
                     self.deadline_changed.notify_one();
                 }
                 state.ceiling = next;
+                state.peer_pending = peer_pending;
             }
             Err(reason) => {
                 state.denial = Some(reason);
@@ -209,5 +266,12 @@ impl AdapterContext<'_> {
 
     pub(crate) fn recheck_denial(&self) -> Option<DenyReason> {
         self.state.lock().expect("execution target lock").denial
+    }
+
+    pub(crate) fn peer_pending(&self) -> bool {
+        self.state
+            .lock()
+            .expect("execution target lock")
+            .peer_pending
     }
 }

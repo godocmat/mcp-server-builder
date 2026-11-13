@@ -7,7 +7,7 @@ use serde::{Serialize, Serializer};
 
 use crate::grants::{Grant, GrantTarget, Operation, PolicyInputError, RequestedPolicy};
 use crate::limits::{ExecutionCeiling, ExecutionLimits, LimitOverrides};
-use crate::paths::is_key;
+use crate::paths::{PathKind, concrete_path, is_key};
 use crate::targets::{RestRoute, VerifiedTarget};
 
 /// Identity and claims established by local launch or transport authentication.
@@ -63,19 +63,8 @@ impl ApprovedGrant {
         }
     }
 
-    fn permits_redirect(&self, target: &VerifiedTarget<'_>) -> bool {
-        match target {
-            VerifiedTarget::Rest {
-                origin,
-                method,
-                path,
-                redirected: true,
-                ..
-            } => self.redirects.iter().any(|route| {
-                &route.origin == *origin && route.method == *method && route.path == *path
-            }),
-            _ => true,
-        }
+    fn permits_redirect(&self, route: &RestRoute) -> bool {
+        self.redirects.contains(route)
     }
 }
 
@@ -98,6 +87,12 @@ pub enum Action<'a> {
     Adapter {
         operation: Operation,
         target: &'a VerifiedTarget<'a>,
+    },
+    /// Check the HTTP route before DNS. The returned ceiling conveys no peer approval.
+    PreflightRest {
+        operation: Operation,
+        route: &'a RestRoute,
+        redirected: bool,
     },
     RenderPrompt,
 }
@@ -208,7 +203,51 @@ impl Policy {
             }
             Action::RenderPrompt => return Err(DenyReason::GrantRequired),
             Action::Adapter { operation, target } => {
-                self.evaluate_adapter(context.capability_id, operation, target, caller, limits)?
+                if operation != Operation::from(target) {
+                    return Err(DenyReason::OperationMismatch);
+                }
+                let facts = target.checked().ok_or(DenyReason::InvalidTarget)?;
+                let redirect = match target {
+                    VerifiedTarget::Rest {
+                        origin,
+                        method,
+                        path,
+                        redirected: true,
+                        ..
+                    } => Some(RestRoute {
+                        origin: (*origin).clone(),
+                        method: *method,
+                        path: (*path).into(),
+                    }),
+                    _ => None,
+                };
+                self.match_adapter_grants(
+                    context.capability_id,
+                    operation,
+                    caller,
+                    limits,
+                    |target| target.matches(&facts),
+                    redirect.as_ref(),
+                )?
+            }
+            Action::PreflightRest {
+                operation,
+                route,
+                redirected,
+            } => {
+                if operation != Operation::from_http_method(route.method) {
+                    return Err(DenyReason::OperationMismatch);
+                }
+                let path = concrete_path(&route.path, PathKind::Http)
+                    .map_err(|_| DenyReason::InvalidTarget)?;
+                self.match_adapter_grants(
+                    context.capability_id,
+                    operation,
+                    caller,
+                    limits,
+                    |target| target.matches_rest_route(&route.origin, route.method, &path),
+                    redirected.then_some(route),
+                )?
             }
         };
         let mut ceiling =
@@ -269,18 +308,15 @@ impl Policy {
             .tighten(limits)
     }
 
-    fn evaluate_adapter(
+    fn match_adapter_grants(
         &self,
         capability_id: &str,
         operation: Operation,
-        target: &VerifiedTarget<'_>,
         caller: &CallerGrant,
         mut limits: ExecutionLimits,
+        matches: impl Fn(&GrantTarget) -> bool,
+        redirect: Option<&RestRoute>,
     ) -> Result<(Option<&str>, ExecutionLimits), DenyReason> {
-        if operation != Operation::from(target) {
-            return Err(DenyReason::OperationMismatch);
-        }
-        let facts = target.checked().ok_or(DenyReason::InvalidTarget)?;
         let mut grants = self.grants_for(capability_id, operation).peekable();
         if grants.peek().is_none() {
             return Err(DenyReason::GrantRequired);
@@ -293,15 +329,15 @@ impl Policy {
         }
         let mut grants = grants
             .filter(|(requested, approved)| {
-                requested.target.matches(&facts) && approved.grant.target.matches(&facts)
+                matches(&requested.target) && matches(&approved.grant.target)
             })
             .peekable();
         if grants.peek().is_none() {
             return Err(DenyReason::TargetDenied);
         }
         let mut grant_id = None;
-        for (requested, approved) in
-            grants.filter(|(_, approved)| approved.permits_redirect(target))
+        for (requested, approved) in grants
+            .filter(|(_, approved)| redirect.is_none_or(|route| approved.permits_redirect(route)))
         {
             grant_id.get_or_insert(requested.id.as_str());
             limits = limits

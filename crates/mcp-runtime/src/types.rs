@@ -206,6 +206,7 @@ pub enum ErrorKind {
     InvalidOutput,
     OutputLimit,
     AdapterFailed,
+    CredentialMissing,
     Cancelled,
     TimedOut,
 }
@@ -230,6 +231,7 @@ impl RuntimeError {
             ErrorKind::InvalidOutput => "mcp.invalid_output",
             ErrorKind::OutputLimit => "runtime.output_limit",
             ErrorKind::AdapterFailed => "adapter.failed",
+            ErrorKind::CredentialMissing => "credential.missing",
             ErrorKind::Cancelled => "run.cancelled",
             ErrorKind::TimedOut => "runtime.timeout",
         }
@@ -246,6 +248,9 @@ impl RuntimeError {
             ErrorKind::InvalidOutput => "The adapter result does not match the declared output.",
             ErrorKind::OutputLimit => "The result exceeds the allowed output size.",
             ErrorKind::AdapterFailed => "The adapter could not complete the operation.",
+            ErrorKind::CredentialMissing => {
+                "Supply the credential configured for this integration."
+            }
             ErrorKind::Cancelled => "The operation was cancelled.",
             ErrorKind::TimedOut => "The operation exceeded its deadline.",
         }

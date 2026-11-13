@@ -9,7 +9,7 @@ use mcp_policy::{
 };
 use mcp_runtime::{
     Adapter, AdapterContext, AdapterError, AdapterOutput, BoxFuture, CancellationToken, Invocation,
-    InvocationInput, PreparationContext, PreparedCall, Progress, Runtime,
+    InvocationInput, PreparationContext, PreparedCall, PreparedTarget, Progress, Runtime,
 };
 use mcp_transport::stdio::{sdk_diagnostic_filter, serve_stdio};
 use serde_json::json;
@@ -111,8 +111,8 @@ enum Call<'a> {
 }
 
 impl PreparedCall for Call<'_> {
-    fn target(&self) -> VerifiedTarget<'_> {
-        match self {
+    fn target(&self) -> PreparedTarget<'_> {
+        PreparedTarget::Verified(match self {
             Self::Tool { origin, path, .. } => VerifiedTarget::Rest {
                 origin,
                 method: HttpMethod::Get,
@@ -124,7 +124,7 @@ impl PreparedCall for Call<'_> {
                 root_ref: "catalog_docs",
                 relative_path: path,
             },
-        }
+        })
     }
 
     fn execute<'a>(

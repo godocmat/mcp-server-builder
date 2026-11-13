@@ -33,8 +33,7 @@ pub enum Operation {
 impl From<&VerifiedTarget<'_>> for Operation {
     fn from(target: &VerifiedTarget<'_>) -> Self {
         match target {
-            VerifiedTarget::Rest { method, .. } if method.is_read() => Self::HttpRead,
-            VerifiedTarget::Rest { .. } => Self::HttpWrite,
+            VerifiedTarget::Rest { method, .. } => Self::from_http_method(*method),
             VerifiedTarget::FileRead { .. } => Self::FileRead,
             VerifiedTarget::Sqlite { access, .. } | VerifiedTarget::Postgres { access, .. } => {
                 match access {
@@ -45,6 +44,16 @@ impl From<&VerifiedTarget<'_>> for Operation {
             VerifiedTarget::Git { .. } => Self::GitRead,
             VerifiedTarget::Executable { .. } => Self::ExecRun,
             VerifiedTarget::CustomRust { .. } => Self::CustomInvoke,
+        }
+    }
+}
+
+impl Operation {
+    pub fn from_http_method(method: HttpMethod) -> Self {
+        if method.is_read() {
+            Self::HttpRead
+        } else {
+            Self::HttpWrite
         }
     }
 }
@@ -367,10 +376,8 @@ impl GrantTarget {
         match (self, facts.target) {
             (
                 Self::Rest {
-                    origin,
-                    method,
-                    path_template,
                     allowed_peer_ranges,
+                    ..
                 },
                 VerifiedTarget::Rest {
                     origin: actual_origin,
@@ -379,9 +386,7 @@ impl GrantTarget {
                     ..
                 },
             ) => {
-                origin == *actual_origin
-                    && method == actual_method
-                    && matches_path(path_template, &facts.path, PathKind::Http)
+                self.matches_rest_route(actual_origin, *actual_method, &facts.path)
                     && allows_peer(allowed_peer_ranges.as_deref(), *peer)
             }
             (
@@ -454,6 +459,27 @@ impl GrantTarget {
                     entry: actual_entry,
                 },
             ) => source == actual_source && entry == actual_entry,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn matches_rest_route(
+        &self,
+        origin: &HttpOrigin,
+        method: HttpMethod,
+        path: &[String],
+    ) -> bool {
+        match self {
+            Self::Rest {
+                origin: allowed_origin,
+                method: allowed_method,
+                path_template,
+                ..
+            } => {
+                allowed_origin == origin
+                    && *allowed_method == method
+                    && matches_path(path_template, path, PathKind::Http)
+            }
             _ => false,
         }
     }

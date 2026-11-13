@@ -11,8 +11,8 @@ pub mod syntax;
 mod types;
 
 pub use adapter::{
-    Adapter, AdapterContext, AdapterError, AdapterOutput, Invocation, InvocationInput,
-    PreparationContext, PreparedCall,
+    Adapter, AdapterContext, AdapterError, AdapterErrorKind, AdapterOutput, Invocation,
+    InvocationInput, PreparationContext, PreparedCall, PreparedTarget,
 };
 pub use execution::{BoxFuture, ExecutionContext, Progress, ProgressSink};
 pub use mcp_policy::Principal;
