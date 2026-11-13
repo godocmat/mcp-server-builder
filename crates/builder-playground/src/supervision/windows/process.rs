@@ -116,6 +116,9 @@ fn launch_in_job(
     environment: &[u16],
     job: OwnedHandle,
 ) -> io::Result<NativeChild> {
+    // Pipe registration borrows Tokio's I/O driver. Check the thread entered a
+    // runtime before allocating anything.
+    tokio::runtime::Handle::try_current().map_err(io::Error::other)?;
     let stdin = PipePair::new(true)?;
     let stdout = PipePair::new(false)?;
     let stderr = PipePair::new(false)?;
@@ -173,7 +176,11 @@ fn launch_in_job(
     drop(stdin.child);
     drop(stdout.child);
     drop(stderr.child);
-    if !is_member(process.handle(), &job)? || !same_image(process.handle(), executable)? {
+    if !is_member(process.handle(), &job)?
+        || !same_image(process.handle(), executable)?
+        || !executable.has_current_identity(false)?
+        || !cwd.has_current_identity(true)?
+    {
         return Err(invalid_data());
     }
     // SAFETY: The primary thread belongs to this newly created, checked process.
@@ -340,5 +347,51 @@ impl Drop for AttributeList {
     fn drop(&mut self) {
         // SAFETY: The list was initialized successfully and its backing storage is live.
         unsafe { DeleteProcThreadAttributeList(self.as_ptr()) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+
+    use windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+
+    use super::*;
+    use crate::supervision::windows::command_line;
+
+    #[tokio::test]
+    async fn a_job_that_refuses_assignment_creates_no_child_and_allows_a_clean_retry() {
+        let executable = LockedPath::open(&env::current_exe().unwrap(), false).unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        let cwd = LockedPath::open(cwd.path(), true).unwrap();
+        let mut rejected_command = command_line(executable.display_path.as_os_str(), &[]).unwrap();
+        let job = new_job().unwrap();
+        let observer = job.try_clone().unwrap();
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags =
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+        limits.BasicLimitInformation.ActiveProcessLimit = 0;
+        // SAFETY: This is the private test job and the limits buffer is fully initialized.
+        assert_ne!(
+            unsafe {
+                SetInformationJobObject(
+                    job.as_raw_handle(),
+                    JobObjectExtendedLimitInformation,
+                    (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                )
+            },
+            0
+        );
+        assert!(launch_in_job(&executable, &cwd, &mut rejected_command, &[0, 0], job).is_err());
+        assert_eq!(active_processes(&observer).unwrap(), 0);
+
+        // Verify the same setup can start a contained child. A help flag keeps the
+        // child from re-running the current test binary's test suite.
+        let command_line =
+            command_line(executable.display_path.as_os_str(), &["--help".into()]).unwrap();
+        let child = launch(&executable, &cwd, command_line, &[0, 0]).unwrap();
+        assert!(is_member(&child.process, &child.job).unwrap());
+        child.stop().await.unwrap();
     }
 }

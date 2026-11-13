@@ -43,14 +43,15 @@ pub(super) struct LockedPath {
 impl LockedPath {
     pub(super) fn open(path: &Path, directory: bool) -> io::Result<Self> {
         let selected = wide(path.as_os_str())?;
-        let (drive, components) = components(&selected)?;
-        let volume = volume_path(drive)?;
+        let (volume, components) = components(&selected)?;
         let mut full_path = volume.clone();
         let mut file = open_component(&full_path, true, true)?;
         verify_ntfs(&file)?;
-        if final_name(&file, VOLUME_NAME_GUID)? != volume {
+        let normalized_volume = final_name(&file, VOLUME_NAME_GUID)?;
+        if !compare_names(&normalized_volume, &volume)?.is_eq() {
             return Err(invalid_data());
         }
+        full_path = normalized_volume;
 
         let mut ancestors = Vec::new();
         let mut components = components.into_iter().peekable();
@@ -84,6 +85,11 @@ impl LockedPath {
 
     pub(super) fn image_name(&self) -> io::Result<Vec<u16>> {
         final_name(&self.file, VOLUME_NAME_NT)
+    }
+
+    pub(super) fn has_current_identity(&self, directory: bool) -> io::Result<bool> {
+        let current = open_component(&self.application_path, directory, false)?;
+        Ok(file_identity(&current)? == self.identity)
     }
 
     pub(super) fn executable_digest(&mut self) -> io::Result<[u8; 32]> {
@@ -122,19 +128,45 @@ pub(super) fn is_exe(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
 }
 
-fn components(path: &[u16]) -> io::Result<(u16, Vec<&[u16]>)> {
+fn components(path: &[u16]) -> io::Result<(Vec<u16>, Vec<&[u16]>)> {
+    const VOLUME_PREFIX: [u16; 7] = [
+        b'V' as u16,
+        b'o' as u16,
+        b'l' as u16,
+        b'u' as u16,
+        b'm' as u16,
+        b'e' as u16,
+        b'{' as u16,
+    ];
+    const GUID_UNITS: usize = 36;
+    const GUID_END: usize = VOLUME_PREFIX.len() + GUID_UNITS;
+    const VOLUME_ROOT_LEN: usize = GUID_END + 2;
     let verbatim = path.starts_with(&VERBATIM_PREFIX);
-    let path = path.strip_prefix(&VERBATIM_PREFIX).unwrap_or(path);
-    let [drive, COLON, separator, tail @ ..] = path else {
+    let is_separator = |unit: u16| unit == BACKSLASH || (!verbatim && unit == SLASH);
+    let selected = path.strip_prefix(&VERBATIM_PREFIX).unwrap_or(path);
+    let (volume, tail) = if let [drive, COLON, separator, tail @ ..] = selected
+        && matches!(*drive, 65..=90 | 97..=122)
+        && is_separator(*separator)
+    {
+        (
+            volume_path(u16::from((*drive as u8).to_ascii_uppercase()))?,
+            tail,
+        )
+    } else if verbatim
+        && selected.len() >= VOLUME_ROOT_LEN
+        && compare_names(&selected[..VOLUME_PREFIX.len()], &VOLUME_PREFIX)?.is_eq()
+        && selected[GUID_END..VOLUME_ROOT_LEN] == [b'}' as u16, BACKSLASH]
+        && is_volume_guid(&selected[VOLUME_PREFIX.len()..GUID_END])
+    {
+        (
+            path[..VERBATIM_PREFIX.len() + VOLUME_ROOT_LEN].to_vec(),
+            &selected[VOLUME_ROOT_LEN..],
+        )
+    } else {
         return Err(invalid_data());
     };
-    let is_separator = |unit: u16| unit == BACKSLASH || (!verbatim && unit == SLASH);
-    if !matches!(*drive, 65..=90 | 97..=122) || !is_separator(*separator) {
-        return Err(invalid_data());
-    }
-    let drive = u16::from((*drive as u8).to_ascii_uppercase());
     if tail.is_empty() {
-        return Ok((drive, Vec::new()));
+        return Ok((volume, Vec::new()));
     }
     let tail = if is_separator(*tail.last().unwrap()) {
         &tail[..tail.len() - 1]
@@ -148,7 +180,17 @@ fn components(path: &[u16]) -> io::Result<(u16, Vec<&[u16]>)> {
     {
         return Err(invalid_data());
     }
-    Ok((drive, components))
+    Ok((volume, components))
+}
+
+fn is_volume_guid(units: &[u16]) -> bool {
+    units.iter().enumerate().all(|(index, &unit)| {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            unit == b'-' as u16
+        } else {
+            matches!(unit, 48..=57 | 65..=70 | 97..=102)
+        }
+    })
 }
 
 fn valid_component(component: &[u16]) -> bool {

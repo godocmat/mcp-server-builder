@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::ptr::null_mut;
@@ -20,7 +21,9 @@ use windows_sys::Win32::{
     Storage::FileSystem::SYNCHRONIZE,
     System::{
         JobObjects::IsProcessInJob,
-        Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, WaitForSingleObject},
+        Threading::{
+            CREATE_NO_WINDOW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, WaitForSingleObject,
+        },
     },
 };
 
@@ -31,6 +34,7 @@ const STDERR_MARKER: &[u8] = b"supervision fixture stderr\n";
 
 #[test]
 #[ignore = "runs as a supervised subprocess"]
+#[allow(clippy::zombie_processes)] // The outer test waits for the descendant's Windows handle.
 fn native_supervision_child_fixture() {
     match env::var(FIXTURE_MODE).as_deref() {
         Ok("grandchild") => loop {
@@ -39,6 +43,7 @@ fn native_supervision_child_fixture() {
         Ok("tree") => {
             let child = Command::new(env::current_exe().unwrap())
                 .args(["--exact", CHILD_TEST, "--ignored", "--nocapture"])
+                .creation_flags(CREATE_NO_WINDOW)
                 .env_clear()
                 .env(FIXTURE_MODE, "grandchild")
                 .stdin(Stdio::null())
@@ -69,6 +74,24 @@ fn native_supervision_child_fixture() {
             write_report(b"ready");
             assert_eq!(io::stdin().read(&mut [0]).unwrap(), 0);
             fs::write("observed-eof", b"yes").unwrap();
+        }
+        Ok("supervisor-exit") => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let spec = spec(&env::current_dir().unwrap(), "tree", &[]);
+                let review = review_launch(&spec, binding()).unwrap();
+                let mut child =
+                    spawn_reviewed(&spec, binding(), review.digest(), |_| None).unwrap();
+                let mut report = child.id().to_le_bytes().to_vec();
+                report.extend(read_report(child.take_stdout().unwrap()).await);
+                write_report(&report);
+                // Simulate a supervisor process exiting without its Rust destructors.
+                assert_eq!(io::stdin().read(&mut [0]).unwrap(), 1);
+                std::process::exit(0);
+            });
         }
         other => panic!("unexpected test fixture mode {other:?}"),
     }
@@ -157,6 +180,8 @@ fn assert_exited(handle: &OwnedHandle) {
 #[tokio::test]
 async fn preserves_native_arguments_environment_and_stdio() {
     let cwd = tempfile::tempdir().unwrap();
+    let working_directory = cwd.path().join("working directory ž");
+    fs::create_dir(&working_directory).unwrap();
     let special_args = [
         "",
         "word with spaces",
@@ -165,7 +190,10 @@ async fn preserves_native_arguments_environment_and_stdio() {
         "žltý",
         "a\tb",
     ];
-    let mut spec = spec(cwd.path(), "report", &special_args);
+    let mut spec = spec(&working_directory, "report", &special_args);
+    let executable = cwd.path().join("supervision fixture ž.exe");
+    fs::copy(&spec.executable, &executable).unwrap();
+    spec.executable = executable;
     spec.environment.extend([
         LaunchEnvironment {
             name: "mixed_Case".into(),
@@ -182,10 +210,15 @@ async fn preserves_native_arguments_environment_and_stdio() {
     ]);
     let review = review_launch(&spec, binding()).unwrap();
     assert_eq!(review.args(), spec.args);
-    let mut child = spawn_reviewed(&spec, binding(), review.digest(), |reference| {
-        assert_eq!(reference, "fixture-token");
-        Some("synthetic value".into())
+    let expected_args = spec.args.clone();
+    let mut child = tokio::task::spawn_blocking(move || {
+        spawn_reviewed(&spec, binding(), review.digest(), |reference| {
+            assert_eq!(reference, "fixture-token");
+            Some("synthetic value".into())
+        })
     })
+    .await
+    .unwrap()
     .unwrap();
     let process = process_handle(child.id());
     assert_live_job_member(&process);
@@ -202,7 +235,7 @@ async fn preserves_native_arguments_environment_and_stdio() {
     expected_environment.sort();
     assert_eq!(
         actual,
-        format!("{:?}\n{expected_environment:?}\n", spec.args)
+        format!("{expected_args:?}\n{expected_environment:?}\n")
     );
     let mut stderr_marker = vec![0; STDERR_MARKER.len()];
     tokio::time::timeout(
@@ -220,7 +253,10 @@ async fn preserves_native_arguments_environment_and_stdio() {
         .unwrap();
     child.stop().await.unwrap();
     assert_exited(&process);
-    assert_eq!(fs::read(cwd.path().join("observed-eof")).unwrap(), b"yes");
+    assert_eq!(
+        fs::read(working_directory.join("observed-eof")).unwrap(),
+        b"yes"
+    );
     assert_eq!(
         stdin.write(b"x").await.unwrap_err().kind(),
         io::ErrorKind::BrokenPipe
@@ -363,4 +399,23 @@ async fn dropping_the_supervisor_terminates_its_process_tree() {
     drop(child);
     assert_exited(&process);
     assert_exited(&descendant);
+}
+
+#[tokio::test]
+async fn abrupt_supervisor_exit_closes_the_job() {
+    let cwd = tempfile::tempdir().unwrap();
+    let spec = spec(cwd.path(), "supervisor-exit", &[]);
+    let review = review_launch(&spec, binding()).unwrap();
+    let mut supervisor = spawn_reviewed(&spec, binding(), review.digest(), |_| None).unwrap();
+    let report = read_report(supervisor.take_stdout().unwrap()).await;
+    let child = process_handle(u32::from_le_bytes(report[..4].try_into().unwrap()));
+    let descendant = process_handle(u32::from_le_bytes(report[4..].try_into().unwrap()));
+    assert_live_job_member(&child);
+    assert_live_job_member(&descendant);
+    let mut input = supervisor.take_stdin().unwrap();
+    input.write_all(b"x").await.unwrap();
+    // Keep the outer owner alive so only the inner supervisor's exit can kill its job.
+    assert_exited(&child);
+    assert_exited(&descendant);
+    supervisor.stop().await.unwrap();
 }
