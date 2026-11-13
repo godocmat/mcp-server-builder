@@ -12,8 +12,9 @@ use std::ptr::{null, null_mut};
 use windows_sys::Wdk::{
     Foundation::OBJECT_ATTRIBUTES,
     Storage::FileSystem::{
-        FILE_OPEN, FILE_OPEN_NO_RECALL, FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
-        FileFsDeviceInformation, NtCreateFile, NtQueryVolumeInformationFile,
+        FILE_OPEN, FILE_OPEN_NO_RECALL, FILE_OPEN_REPARSE_POINT, FILE_RENAME_INFORMATION,
+        FILE_SYNCHRONOUS_IO_NONALERT, FileFsDeviceInformation, FileRenameInformation, NtCreateFile,
+        NtQueryVolumeInformationFile, NtSetInformationFile,
     },
     System::SystemServices::{
         FILE_FS_DEVICE_INFORMATION, FILE_REMOTE_DEVICE, FILE_REMOTE_DEVICE_VSMB,
@@ -29,11 +30,10 @@ use windows_sys::Win32::{
         FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_VIRTUAL, FILE_DEVICE_DISK,
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_RENAME_INFO,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FILE_TYPE_DISK, FileRenameInfo,
-        GetFileInformationByHandle, GetFileType, GetFinalPathNameByHandleW,
-        GetVolumeInformationByHandleW, GetVolumeNameForVolumeMountPointW, SYNCHRONIZE,
-        SetFileInformationByHandle, VOLUME_NAME_GUID,
+        FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, FILE_TRAVERSE, FILE_TYPE_DISK, GetFileInformationByHandle, GetFileType,
+        GetFinalPathNameByHandleW, GetVolumeInformationByHandleW,
+        GetVolumeNameForVolumeMountPointW, SYNCHRONIZE, VOLUME_NAME_GUID,
     },
     System::IO::IO_STATUS_BLOCK,
 };
@@ -413,19 +413,19 @@ fn rename(file: &File, name: &str) -> io::Result<()> {
     const _: () = {
         assert!(
             std::mem::offset_of!(RenameInfo, flags)
-                == std::mem::offset_of!(FILE_RENAME_INFO, Anonymous)
+                == std::mem::offset_of!(FILE_RENAME_INFORMATION, Anonymous)
         );
         assert!(
             std::mem::offset_of!(RenameInfo, root_directory)
-                == std::mem::offset_of!(FILE_RENAME_INFO, RootDirectory)
+                == std::mem::offset_of!(FILE_RENAME_INFORMATION, RootDirectory)
         );
         assert!(
             std::mem::offset_of!(RenameInfo, name_length)
-                == std::mem::offset_of!(FILE_RENAME_INFO, FileNameLength)
+                == std::mem::offset_of!(FILE_RENAME_INFORMATION, FileNameLength)
         );
         assert!(
             std::mem::offset_of!(RenameInfo, name)
-                == std::mem::offset_of!(FILE_RENAME_INFO, FileName)
+                == std::mem::offset_of!(FILE_RENAME_INFORMATION, FileName)
         );
     };
     let mut info = RenameInfo {
@@ -438,19 +438,25 @@ fn rename(file: &File, name: &str) -> io::Result<()> {
         *slot = unit;
         info.name_length += size_of::<u16>() as u32;
     }
-    // A simple relative name with no root handle renames the checked source
-    // within its own parent. A zero flag requires the destination to be absent.
-    // SAFETY: This is a borrowed DELETE handle, and info matches FILE_RENAME_INFO.
-    if unsafe {
-        SetFileInformationByHandle(
+    // A simple name with no root handle renames within the pinned parent.
+    // A zero flag requires the destination to be absent.
+    let mut status = IO_STATUS_BLOCK::default();
+    // SAFETY: The DELETE handle and writable status are live, and info matches
+    // the structure required by FileRenameInformation.
+    let result = unsafe {
+        NtSetInformationFile(
             file.as_raw_handle(),
-            FileRenameInfo,
+            &mut status,
             (&raw const info).cast(),
             size_of::<RenameInfo>() as u32,
+            FileRenameInformation,
         )
-    } == 0
-    {
-        Err(io::Error::last_os_error())
+    };
+    if result != STATUS_SUCCESS {
+        // SAFETY: Translating an NTSTATUS has no pointer or handle arguments.
+        Err(io::Error::from_raw_os_error(
+            unsafe { RtlNtStatusToDosError(result) } as i32,
+        ))
     } else {
         Ok(())
     }

@@ -1,3 +1,6 @@
+//! The selected parent and the Linux mount namespace are trusted. After
+//! validating procfs, descriptor paths keep I/O bound to the opened directory.
+
 use std::fs::{self, File};
 use std::io;
 use std::os::fd::AsRawFd;
@@ -117,6 +120,7 @@ impl Directory {
     }
 
     pub(super) fn open_child(&self, name: &str) -> Result<Node, ExportError> {
+        self.verify()?;
         let selected = openat2(
             &self.file,
             name,

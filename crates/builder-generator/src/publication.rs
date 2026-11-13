@@ -346,4 +346,5 @@ fn storage(_: io::Error) -> ExportError {
 }
 
 #[cfg(all(test, any(target_os = "linux", windows)))]
+#[path = "publication/tests.rs"]
 mod tests;
