@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use builder_project::{ManifestRevision, ValidatedManifest};
+use builder_project::{MANIFEST_NAME, ManifestRevision, ValidatedManifest, parse_manifest};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     ExportError, FileOwner, GENERATION_NAME, GenerationRecord, OutputFile, OutputFiles, publication,
@@ -75,6 +76,7 @@ pub(crate) fn apply(
         return Err(ExportError::InputTooLarge);
     }
     let record = GenerationRecord::parse(&record, manifest.document().project_id)?;
+    let project_id = record.project_id;
     let mut resolutions_by_path = BTreeMap::new();
     for resolution in resolutions {
         if resolutions_by_path
@@ -88,29 +90,26 @@ pub(crate) fn apply(
     let mut conflicts = Vec::new();
     for prior in record.files {
         let current = tree.remove(&prior.path);
-        if prior.owner == FileOwner::Project {
-            if let Some(bytes) = current {
+        let review_bytes = match (prior.owner, current) {
+            (FileOwner::Project, Some(bytes)) if can_keep(&prior.path, &bytes, project_id) => {
                 keep(output, prior.path, bytes);
-            } else if output.contains_key(&prior.path) {
-                review(
-                    output,
-                    &mut conflicts,
-                    &mut resolutions_by_path,
-                    prior.path,
-                    Some(prior.digest),
-                    None,
-                )?;
+                continue;
             }
-        } else if observed.get(&prior.path) != Some(&prior.digest) {
-            review(
-                output,
-                &mut conflicts,
-                &mut resolutions_by_path,
-                prior.path,
-                Some(prior.digest),
-                current,
-            )?;
-        }
+            (FileOwner::Project, None) if !output.contains_key(&prior.path) => continue,
+            (FileOwner::Generator, _) if observed.get(&prior.path) == Some(&prior.digest) => {
+                continue;
+            }
+            (_, current) => current,
+        };
+        review(
+            output,
+            &mut conflicts,
+            &mut resolutions_by_path,
+            prior.path,
+            Some(prior.digest),
+            review_bytes,
+            project_id,
+        )?;
     }
     // Untracked content may include local configuration. The user chooses individual files.
     for (path, bytes) in tree {
@@ -121,6 +120,7 @@ pub(crate) fn apply(
             path,
             None,
             Some(bytes),
+            project_id,
         )?;
     }
     if !resolutions_by_path.is_empty() {
@@ -137,14 +137,15 @@ fn review(
     path: String,
     previous_digest: Option<ManifestRevision>,
     current: Option<Vec<u8>>,
+    project_id: Uuid,
 ) -> Result<(), ExportError> {
     let observed_digest = current.as_deref().map(ManifestRevision::of);
     let replacement_digest = output
         .get(&path)
         .map(|file| ManifestRevision::of(&file.bytes));
-    let can_keep = current.as_ref().is_some_and(|bytes| {
-        path != builder_project::MANIFEST_NAME || builder_project::parse_manifest(bytes).is_ok()
-    });
+    let can_keep = current
+        .as_ref()
+        .is_some_and(|bytes| can_keep(&path, bytes, project_id));
     let Some(choice) = resolutions.remove(path.as_str()) else {
         conflicts.push(ExportConflict {
             path,
@@ -166,6 +167,11 @@ fn review(
         keep(output, path, current.ok_or(ExportError::InvalidResolution)?);
     }
     Ok(())
+}
+
+fn can_keep(path: &str, bytes: &[u8], project_id: Uuid) -> bool {
+    path != MANIFEST_NAME
+        || parse_manifest(bytes).is_ok_and(|manifest| manifest.document().project_id == project_id)
 }
 
 fn keep(output: &mut OutputFiles, path: String, bytes: Vec<u8>) {

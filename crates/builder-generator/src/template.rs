@@ -41,6 +41,7 @@ pub(crate) fn render(_manifest: &ValidatedManifest) -> Vec<RenderedFile> {
         "runtime-config.example.json",
         "src/config.rs",
         "src/main.rs",
+        "tests/stdio.rs",
         "crates/mcp-transport/Cargo.toml",
     );
     files.push(file(
