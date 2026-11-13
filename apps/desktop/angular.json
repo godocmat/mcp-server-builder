@@ -34,7 +34,10 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "tsconfig.spec.json",
-            "buildTarget": "desktop:build:development"
+            "buildTarget": "desktop:build:development",
+            "coverageInclude": ["ui/src/**/*.ts"],
+            "coverageExclude": ["**/*.spec.ts"],
+            "coverageReporters": ["text", "lcovonly"]
           }
         }
       }

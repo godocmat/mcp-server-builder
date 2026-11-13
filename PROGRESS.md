@@ -61,11 +61,19 @@ The tested inputs use Rust `1.99.1`, Node `24.22.3` and npm `11.19.1` as the pri
 | M2 · Local execution policy | Implement grants, constraints, limits and redaction in `mcp-policy`. `mcp-runtime` already has the dependency edge for shared dispatch. |
 | M3/M4 · MCP | Use the optional SDK profiles in `mcp-transport` for real stdio and HTTP tests. Verify revision and session behavior, cancellation and the final SDK feature selection. |
 
+## F2 build and test CI
+
+The `codex/f2-build-test-ci` branch starts from the verified F1 integration `139f0920d4e0ddff2244cbf4fab5fd32e7dd8ff0`. It adds the Windows x64, macOS arm64 and Ubuntu amd64 foundation workflow, CLI and SDK checks, per-platform LCOV artifacts and a debug-only native WebView trial. [Workflow](.github/workflows/foundation.yml) · [Commands and evidence](docs/ci.md)
+
+Local Windows 11 x64 and Ubuntu 24.04 amd64 userspace passed the Rust, Angular, CLI and six locked SDK checks, including the shared Rust/TypeScript fixture. Native WebView2 and WebKitGTK both rendered the typed IPC reply and matched the Rust trace. Rust reported 44 of 127 authored lines and Angular reported 9 of 11. [Local results](docs/ci.md#observed-local-results)
+
+The first GitHub run supplies evidence for the named workers, including Apple silicon compilation and WKWebView. Reconcile the shared Cargo lock with any M1/M2 dependency changes and run the workflow on the integrated commit. M3/M4 add wire and Inspector evidence, and M8/M10 and R2/R4 add installed native evidence. [Hosted and integration handoff](docs/ci.md#first-hosted-run)
+
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
-| F2 · Foundation and platform | Repeat the locked build, type and feature checks on the named workers. Verify each WebView, DTO parity, CI reporting and native GUI automation options. |
+| F2 · Foundation and platform | Record a hosted run on the three named workers, both coverage artifacts per worker, and the native trial outcome for each WebView. [F2 hosted handoff](docs/ci.md#first-hosted-run) |
 | M1/M2/M5–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries, Windows Job Objects and filesystem behavior, secret canaries, clean standalone build, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
 | M3/M4 · MCP | Verify both revisions over real stdio and HTTP, the issued legacy and sessionless comparison, cancellation and the initial SDK pin. |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |

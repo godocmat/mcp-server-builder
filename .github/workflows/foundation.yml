@@ -1,0 +1,203 @@
+name: Foundation CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foundation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  foundation:
+    name: Foundation (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            arch: x64
+            rust-host: x86_64-pc-windows-msvc
+          - runner: macos-26
+            arch: arm64
+            rust-host: aarch64-apple-darwin
+          - runner: ubuntu-24.04
+            arch: x64
+            rust-host: x86_64-unknown-linux-gnu
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Ubuntu build and display dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config curl wget file libwebkit2gtk-4.1-dev \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            xvfb xauth dbus fonts-dejavu-core
+          cc --version
+          pkg-config --modversion webkit2gtk-4.1 gtk+-3.0 openssl
+          ldd --version
+
+      - name: Record MSVC, Windows SDK and WebView2
+        if: runner.os == 'Windows'
+        run: ./.github/ci/windows-prerequisites.ps1
+
+      - name: Record Xcode, macOS SDK and WebKit
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sw_vers
+          xcode-select --print-path
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun clang --version
+          if ! /usr/libexec/PlistBuddy -c 'Print CFBundleVersion' \
+            /System/Library/Frameworks/WebKit.framework/Resources/Info.plist; then
+            echo '::warning::Unable to read the system WebKit version from its framework metadata'
+          fi
+
+      - name: Record runner, lockfiles and Rust toolchain
+        env:
+          EXPECTED_RUST_HOST: ${{ matrix.rust-host }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          "Runner image: $env:ImageOS $env:ImageVersion ($env:RUNNER_ARCH)"
+          [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+          git rev-parse HEAD
+          Get-FileHash -Algorithm SHA256 -LiteralPath Cargo.lock,apps/desktop/package-lock.json |
+            Format-Table Hash,Path -AutoSize
+          # rustup reads the pinned toolchain and component list from rust-toolchain.toml.
+          $compiler = rustc -vV
+          $compiler
+          if ("host: $env:EXPECTED_RUST_HOST" -notin $compiler) {
+            throw "Expected Rust host $env:EXPECTED_RUST_HOST"
+          }
+          cargo --version
+
+      - name: Set up primary Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Check Angular and TypeScript on primary Node
+        run: ./.github/ci/angular.ps1 -NodeVersion (Get-Content -Raw .node-version).Trim() -NpmVersion 11.19.1 -Architecture ${{ matrix.arch }} -Coverage
+
+      - name: Check Rust and shared DTO fixture
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo fmt --all --check
+          cargo build --locked --workspace --features mcp-builder-desktop/custom-protocol
+          cargo test --locked --workspace --features mcp-builder-desktop/custom-protocol
+          cargo clippy --locked --workspace --all-targets --features mcp-builder-desktop/custom-protocol -- -D warnings
+          cargo build --locked --workspace
+
+      - name: Check CLI text and versioned JSON
+        run: node .github/ci/cli-smoke.mjs
+
+      - name: Check six locked rmcp profiles
+        env:
+          AWS_LC_SYS_PREBUILT_NASM: "1"
+        run: node .github/ci/sdk-probes.mjs
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-llvm-cov@0.9.1
+          fallback: none
+
+      - name: Collect Rust coverage
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup component add llvm-tools-preview
+          cargo llvm-cov --version
+          ./.github/ci/rust-coverage.ps1
+
+      - name: Upload per-platform line coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ matrix.runner }}
+          path: |
+            target/rust.lcov
+            apps/desktop/coverage/desktop/lcov.info
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Set up alternate Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26.13.1"
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Check Angular and TypeScript on alternate Node
+        run: ./.github/ci/angular.ps1 -NodeVersion 26.13.1 -NpmVersion 11.20.0 -Architecture ${{ matrix.arch }}
+
+      - name: Trial Tauri build with alternate Node
+        working-directory: apps/desktop
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+          & $npm run tauri -- build --debug --no-bundle --no-sign -- --locked
+
+      - name: Trial native WebView and IPC
+        id: native-smoke
+        # Track hosted display/driver compatibility before making it a required check.
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo build --locked -p mcp-builder-desktop --features custom-protocol,ci-webdriver
+          if ($IsLinux) {
+            xvfb-run -a dbus-run-session -- node .github/ci/native-smoke.mjs
+          } else {
+            node .github/ci/native-smoke.mjs
+          }
+
+      - name: Record native trial outcome
+        if: always()
+        env:
+          NATIVE_OUTCOME: ${{ steps.native-smoke.outcome }}
+        run: |
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Native WebView and IPC trial ($env:RUNNER_OS): $env:NATIVE_OUTCOME"
+
+      - name: Verify lockfiles stayed intact
+        run: git diff --exit-code -- Cargo.lock apps/desktop/package-lock.json
+
+  workflow-lint:
+    name: Workflow syntax
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run actionlint
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --output "$archive" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color

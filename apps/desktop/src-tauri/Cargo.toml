@@ -11,7 +11,9 @@ tauri-build.workspace = true
 [dependencies]
 builder-app.workspace = true
 tauri.workspace = true
+tauri-plugin-wdio-webdriver = { version = "=1.5.1", optional = true }
 tracing-subscriber.workspace = true
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+ci-webdriver = ["dep:tauri-plugin-wdio-webdriver"]

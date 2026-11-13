@@ -11,6 +11,7 @@
     "start": "ng serve --host 127.0.0.1 --port 1420",
     "build": "ng build",
     "test": "ng test --watch=false",
+    "test:coverage": "ng test --watch=false --coverage",
     "format:check": "prettier --check package.json angular.json \"tsconfig*.json\" \"ui/src/**/*.{ts,html,css}\" \"src-tauri/{tauri.conf.json,capabilities/*.json}\"",
     "tauri": "tauri"
   },
@@ -28,6 +29,7 @@
     "@angular/cli": "22.2.7",
     "@angular/compiler-cli": "22.2.6",
     "@tauri-apps/cli": "2.12.4",
+    "@vitest/coverage-v8": "5.1.0",
     "jsdom": "31.0.0",
     "prettier": "3.10.1",
     "typescript": "6.0.3",

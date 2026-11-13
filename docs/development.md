@@ -1,6 +1,6 @@
 # Local development
 
-[Workspace architecture](architecture.md#components-and-workspace-boundaries) · [Shared contracts](contracts.md) · [Progress](../PROGRESS.md)
+[Workspace architecture](architecture.md#components-and-workspace-boundaries) · [Shared contracts](contracts.md) · [Foundation CI](ci.md) · [Progress](../PROGRESS.md)
 
 ## F1 toolchain
 
