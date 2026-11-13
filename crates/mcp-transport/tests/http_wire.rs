@@ -569,7 +569,9 @@ async fn legacy_session_capacity_preserves_modern_calls_and_recovers_after_delet
 async fn modern_disconnect_cancels_only_the_request_stream() {
     let server = Server::start(LoopbackProfile::DualRevision, None).await;
     for (item, token) in [("wait-progress", Some("progress-a")), ("wait-quiet", None)] {
-        let request = tool("same-id", json!(item), true, token);
+        let mut request = tool("same-id", json!(item), true, token);
+        request["params"]["_meta"]["io.modelcontextprotocol/clientInfo"] =
+            json!({"name":"cancelled-client","version":"1"});
         let (started, mut reply) = tokio::join!(
             server.started(),
             send(server.address, post(server.address, &request, true, None)),
@@ -581,12 +583,11 @@ async fn modern_disconnect_cancels_only_the_request_stream() {
             assert_eq!(progress["method"], "notifications/progress");
             assert_eq!(progress["params"]["progressToken"], token);
         }
-        let quick = tool("same-id", json!("42"), true, None);
-        let sibling = exchange(&server, &quick, true, None).await;
-        assert_eq!(sibling["result"]["structuredContent"]["id"], "42");
-        assert!(server.active() > 0);
+        let mut sibling = start_sibling(&server, "same-id", true, None).await;
+        assert_eq!(server.active(), 2);
         drop(reply);
         assert_ended_promptly(&server, item).await;
+        finish_sibling(&server, &mut sibling, "same-id").await;
     }
     server.stop().await;
 }
@@ -636,6 +637,11 @@ async fn legacy_disconnect_and_cancellation_differ_with_and_without_a_session() 
         );
         assert_cancel_accepted(&server, session.as_deref(), "unrelated").await;
         assert!(server.stays_active().await);
+        let mut sibling = if drop_cancels {
+            None
+        } else {
+            Some(start_sibling(&server, "sibling", false, session.as_deref()).await)
+        };
         assert_cancel_accepted(&server, session.as_deref(), "slow").await;
         if drop_cancels {
             assert!(server.stays_active().await);
@@ -645,6 +651,7 @@ async fn legacy_disconnect_and_cancellation_differ_with_and_without_a_session() 
         } else {
             assert_ended_promptly(&server, "wait-progress").await;
             assert!(reply.event().await.is_none());
+            finish_sibling(&server, sibling.as_mut().unwrap(), "sibling").await;
         }
         let quick = tool("slow", json!("42"), false, None);
         assert_eq!(
@@ -654,6 +661,31 @@ async fn legacy_disconnect_and_cancellation_differ_with_and_without_a_session() 
         );
         server.stop().await;
     }
+}
+
+async fn start_sibling(server: &Server, id: &str, modern: bool, session: Option<&str>) -> Reply {
+    let mut call = tool(id, json!("wait-sibling"), modern, None);
+    if modern {
+        call["params"]["_meta"]["io.modelcontextprotocol/clientInfo"] =
+            json!({"name":"sibling-client","version":"1"});
+    }
+    let reply = send(server.address, post(server.address, &call, modern, session)).await;
+    assert_eq!(reply.status(), 200);
+    assert!(reply.is_sse());
+    assert_eq!(server.started().await, "wait-sibling");
+    reply
+}
+
+async fn finish_sibling(server: &Server, sibling: &mut Reply, id: &str) {
+    assert_eq!(server.active(), 1);
+    server.release_sibling();
+    let terminal = sibling.terminal().await;
+    assert_eq!(terminal["id"], id);
+    assert_eq!(
+        terminal["result"]["structuredContent"]["id"],
+        "wait-sibling"
+    );
+    assert_eq!(server.ended().await, "wait-sibling");
 }
 
 async fn assert_ended_promptly(server: &Server, item: &str) {

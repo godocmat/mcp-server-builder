@@ -15,8 +15,8 @@ use mcp_runtime::{
 };
 use mcp_transport::http::{LoopbackOptions, LoopbackProfile, bind_loopback};
 use serde_json::{Value, json};
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::{Mutex, Notify};
 
 const OPERATOR: &str = "wire-test-operator";
 const WAIT: Duration = Duration::from_secs(4);
@@ -41,6 +41,7 @@ impl Server {
             preparations: AtomicUsize::new(0),
             effects: AtomicUsize::new(0),
             active: AtomicUsize::new(0),
+            sibling_release: Notify::new(),
             start_signal,
             end_signal,
         });
@@ -115,6 +116,10 @@ impl Server {
         self.fixture.active.load(Ordering::SeqCst)
     }
 
+    pub(super) fn release_sibling(&self) {
+        self.fixture.sibling_release.notify_one();
+    }
+
     pub(super) async fn stays_active(&self) -> bool {
         tokio::time::sleep(Duration::from_millis(100)).await;
         self.active() > 0
@@ -155,6 +160,7 @@ struct Fixture {
     preparations: AtomicUsize,
     effects: AtomicUsize,
     active: AtomicUsize,
+    sibling_release: Notify,
     start_signal: UnboundedSender<String>,
     end_signal: UnboundedSender<String>,
 }
@@ -240,7 +246,7 @@ impl PreparedCall for Call<'_> {
             self.fixture.effects.fetch_add(1, Ordering::SeqCst);
             let output = match self.target {
                 Target::Tool {
-                    id: id @ ("wait-progress" | "wait-quiet"),
+                    id: id @ ("wait-progress" | "wait-quiet" | "wait-sibling"),
                     ..
                 } => {
                     self.fixture.active.fetch_add(1, Ordering::SeqCst);
@@ -258,7 +264,15 @@ impl PreparedCall for Call<'_> {
                             })
                             .await;
                     }
-                    pending().await
+                    if id != "wait-sibling" {
+                        return pending().await;
+                    }
+                    self.fixture.sibling_release.notified().await;
+                    AdapterOutput::Tool {
+                        text: None,
+                        structured_content: Some([("id".into(), json!(id))].into_iter().collect()),
+                        effect: Effect::None,
+                    }
                 }
                 Target::Tool { id, .. } => AdapterOutput::Tool {
                     text: (id == "wide").then(|| "x".repeat(1024 * 1024 - 512)),
