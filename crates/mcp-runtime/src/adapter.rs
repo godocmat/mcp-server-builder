@@ -1,0 +1,188 @@
+use std::collections::BTreeMap;
+use std::num::NonZeroU64;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use mcp_policy::{
+    Action, DenyReason, Effect, ExecutionCeiling, ExecutionLimits, LimitOverrides, Operation,
+    OperationContext, Policy, VerifiedTarget,
+};
+use serde_json::{Map, Value};
+use uuid::Uuid;
+
+use crate::{BoxFuture, CancellationToken, Principal, Progress, ProgressSink};
+
+/// Trusted adapter code prepares and retains the same target that it will use. Preparation
+/// does not resolve credentials or perform the requested read, mutation or command.
+pub trait Adapter: Send + Sync {
+    fn prepare<'a>(
+        &'a self,
+        invocation: Invocation<'a>,
+        context: &'a PreparationContext,
+    ) -> BoxFuture<'a, Result<Box<dyn PreparedCall + 'a>, AdapterError>>;
+}
+
+pub trait PreparedCall: Send {
+    fn target(&self) -> VerifiedTarget<'_>;
+
+    /// Use the prepared target only after admission. Any changed target requires
+    /// `authorize_target` before effects, with the previous deadline and limits retained.
+    fn execute<'a>(
+        self: Box<Self>,
+        context: &'a AdapterContext<'_>,
+    ) -> BoxFuture<'a, Result<AdapterOutput, AdapterError>>
+    where
+        Self: 'a;
+}
+
+pub struct Invocation<'a> {
+    pub capability_id: &'a str,
+    pub binding_id: &'a str,
+    pub input: InvocationInput<'a>,
+}
+
+pub enum InvocationInput<'a> {
+    Tool(&'a Map<String, Value>),
+    Resource {
+        uri: &'a str,
+        variables: &'a BTreeMap<String, String>,
+    },
+}
+
+#[derive(Debug)]
+pub enum AdapterOutput {
+    Tool {
+        text: Option<String>,
+        structured_content: Option<Map<String, Value>>,
+        effect: Effect,
+    },
+    Resource {
+        text: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdapterError {
+    pub effect: Effect,
+}
+
+pub struct PreparationContext {
+    pub(crate) ceiling: ExecutionCeiling,
+    pub(crate) cancellation: CancellationToken,
+    pub(crate) correlation_id: Uuid,
+}
+
+impl PreparationContext {
+    pub fn deadline(&self) -> Instant {
+        self.ceiling.deadline
+    }
+
+    pub fn limits(&self) -> ExecutionLimits {
+        self.ceiling.limits
+    }
+
+    pub fn cancellation(&self) -> &CancellationToken {
+        &self.cancellation
+    }
+
+    pub fn correlation_id(&self) -> Uuid {
+        self.correlation_id
+    }
+}
+
+pub struct AdapterContext<'a> {
+    pub(crate) preparation: &'a PreparationContext,
+    pub(crate) policy: &'a Policy,
+    pub(crate) principal: &'a Principal<'a>,
+    pub(crate) capability_id: &'a str,
+    pub(crate) operation: Operation,
+    pub(crate) timeout_ms: Option<NonZeroU64>,
+    pub(crate) requested_limits: LimitOverrides,
+    pub(crate) admitted_at: Instant,
+    pub(crate) ceiling: Mutex<ExecutionCeiling>,
+    pub(crate) progress: Option<&'a dyn ProgressSink>,
+    pub(crate) progress_state: tokio::sync::Mutex<ProgressState>,
+    pub(crate) deadline_changed: tokio::sync::Notify,
+}
+
+#[derive(Default)]
+pub(crate) struct ProgressState {
+    sent: u8,
+    last: Option<(Instant, f64)>,
+}
+
+impl AdapterContext<'_> {
+    pub fn deadline(&self) -> Instant {
+        self.current_ceiling().deadline
+    }
+
+    pub fn limits(&self) -> ExecutionLimits {
+        self.current_ceiling().limits
+    }
+
+    pub fn cancellation(&self) -> &CancellationToken {
+        self.preparation.cancellation()
+    }
+
+    pub fn correlation_id(&self) -> Uuid {
+        self.preparation.correlation_id()
+    }
+
+    pub fn authorize_target(
+        &self,
+        target: &VerifiedTarget<'_>,
+    ) -> Result<ExecutionCeiling, DenyReason> {
+        let mut ceiling = self.ceiling.lock().expect("execution ceiling lock");
+        if self.cancellation().is_cancelled() {
+            return Err(DenyReason::InvalidContext);
+        }
+        let permit = self.policy.evaluate(&OperationContext {
+            principal: self.principal,
+            capability_id: self.capability_id,
+            action: Action::Adapter {
+                operation: self.operation,
+                target,
+            },
+            capability_timeout_ms: self.timeout_ms,
+            requested_limits: self.requested_limits,
+            ceiling: Some(*ceiling),
+            admitted_at: self.admitted_at,
+            now: Instant::now(),
+        })?;
+        *ceiling = permit.ceiling();
+        self.deadline_changed.notify_one();
+        Ok(*ceiling)
+    }
+
+    pub async fn report_progress(&self, mut event: Progress) {
+        let Some(sink) = self.progress else { return };
+        if self.cancellation().is_cancelled()
+            || !event.progress.is_finite()
+            || event.progress < 0.0
+            || event
+                .total
+                .is_some_and(|total| !total.is_finite() || total <= 0.0 || total < event.progress)
+        {
+            return;
+        }
+        let mut state = self.progress_state.lock().await;
+        let now = Instant::now();
+        if self.cancellation().is_cancelled()
+            || now >= self.deadline()
+            || state.sent >= 32
+            || state.last.is_some_and(|(time, previous)| {
+                event.progress <= previous || now.duration_since(time) < Duration::from_millis(50)
+            })
+        {
+            return;
+        }
+        event.message = None;
+        state.last = Some((now, event.progress));
+        state.sent += 1;
+        sink.send(event).await;
+    }
+
+    pub(crate) fn current_ceiling(&self) -> ExecutionCeiling {
+        *self.ceiling.lock().expect("execution ceiling lock")
+    }
+}

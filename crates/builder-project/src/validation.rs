@@ -3,8 +3,8 @@ mod scenarios;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use jsonschema::{ValidationError, Validator, draft202012};
 use mcp_policy::ExecutionLimits;
+use mcp_runtime::{compile_schema, compile_tool_schema};
 use serde_json::Value;
 
 use crate::syntax::{
@@ -18,48 +18,6 @@ const MAX_OUTPUT_BYTES: u64 = ExecutionLimits::MAX_OUTPUT_BYTES;
 const MAX_RECORDS: usize = 512;
 const MAX_TEXT_BYTES: usize = 16 * 1024;
 const MAX_ISSUES: usize = 128;
-const DRAFT_2020_12: &str = "https://json-schema.org/draft/2020-12/schema";
-
-pub fn compile_schema(schema: &Value) -> Result<Validator, ValidationError<'static>> {
-    draft202012::options().offline().build(schema)
-}
-
-fn uses_local_schema_refs(schema: &Value) -> bool {
-    match schema {
-        Value::Bool(_) => true,
-        Value::Object(fields) => fields.iter().all(|(key, value)| match key.as_str() {
-            "$schema" => matches!(
-                value.as_str(),
-                Some(DRAFT_2020_12 | "https://json-schema.org/draft/2020-12/schema#")
-            ),
-            "$ref" | "$dynamicRef" => value
-                .as_str()
-                .is_some_and(|reference| reference.starts_with('#')),
-            "properties" | "patternProperties" | "dependentSchemas" | "$defs" | "definitions" => {
-                value
-                    .as_object()
-                    .is_some_and(|map| map.values().all(uses_local_schema_refs))
-            }
-            "allOf" | "anyOf" | "oneOf" | "prefixItems" => value
-                .as_array()
-                .is_some_and(|values| values.iter().all(uses_local_schema_refs)),
-            "items"
-            | "contains"
-            | "propertyNames"
-            | "additionalProperties"
-            | "not"
-            | "if"
-            | "then"
-            | "else"
-            | "unevaluatedItems"
-            | "unevaluatedProperties"
-            | "contentSchema" => uses_local_schema_refs(value),
-            _ => true,
-        }),
-        _ => false,
-    }
-}
-
 struct Check {
     issues: Vec<ValidationIssue>,
     base: String,
@@ -150,7 +108,11 @@ impl Check {
             return;
         }
         self.require(
-            uses_local_schema_refs(value) && compile_schema(value).is_ok(),
+            if object_root {
+                compile_tool_schema(value).is_ok()
+            } else {
+                compile_schema(value).is_ok()
+            },
             IssueCode::Schema,
             suffix,
             "Use a valid JSON Schema 2020-12 schema with in-document references.",

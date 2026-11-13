@@ -2,19 +2,21 @@
 
 mod document;
 mod parse;
+mod projection;
 mod revision;
 mod scenario;
 mod syntax;
 mod validation;
 
 pub use document::*;
+pub use mcp_runtime::compile_schema;
+pub use mcp_runtime::syntax::is_portable_path;
 pub use parse::{
     ManifestError, SchemaVersion, ValidatedManifest, parse_manifest, validate_document,
 };
+pub use projection::runtime_definition;
 pub use revision::{InvalidRevision, ManifestRevision};
 pub use scenario::*;
-pub use syntax::is_portable_path;
-pub use validation::compile_schema;
 
 pub const MANIFEST_NAME: &str = "mcp-project.json";
 pub const PROJECT_FORMAT: &str = "mcp-server-builder.project";
