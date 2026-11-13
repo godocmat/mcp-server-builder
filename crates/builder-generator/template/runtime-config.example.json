@@ -1,0 +1,8 @@
+{
+  "configVersion": 1,
+  "kind": "stdio",
+  "approvedGrantIds": [],
+  "approvedPromptIds": [],
+  "targetBindings": {},
+  "secretSources": {}
+}
