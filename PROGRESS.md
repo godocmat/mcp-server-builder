@@ -87,6 +87,8 @@ Branch `codex/m1-local-project-model` started from F1 integration `139f0920d4e0d
 
 The M1 integration merges `15cdddb` and uses the M2 requested policy type directly in `ProjectDocument`. Manifest validation keeps the schema 1 target kinds, binding references, path narrowing and limit bounds. The catalog fixture uses the shared evaluator for approved REST and file operations and verifies denial outside the approved file path. M3 can use the typed document, policy and offline schema compiler. [MCP runtime dependencies](TASKS.md#local-mvp)
 
+The integrated Windows checkout passed all 44 locked workspace tests, including the native replacement and catalog recovery checks. The full Rust checks used the browser assets already verified by F2. [Integrated verification](docs/local-project-model.md#integrated-verification)
+
 ## Verification carried forward
 
 | First task | Evidence still required |

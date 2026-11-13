@@ -221,12 +221,11 @@ fn check_tagged_fields(root: &Value) -> Result<(), ManifestError> {
     Ok(())
 }
 
-// Serde buffers internally tagged records before selecting the variant. Check
-// those fields against the selected shape so type errors retain their pointer.
-type FieldCheck = fn(&Value) -> bool;
-type FieldRule = (&'static str, FieldCheck);
+type FieldRule = (&'static str, fn(&Value) -> bool);
 type VariantRule = (&'static str, &'static [FieldRule]);
 
+// M2 sanitizes Serde errors. Check the pilot shape first so the editor can
+// locate missing, malformed or unexpected policy fields.
 fn check_policy_fields(root: &Value) -> Result<(), ManifestError> {
     let Some(policy) = root.get("policy") else {
         return Ok(());
@@ -306,8 +305,6 @@ fn check_policy_fields(root: &Value) -> Result<(), ManifestError> {
     Ok(())
 }
 
-// M2 deliberately sanitizes Serde errors. Check the pilot shape first so the
-// editor can still locate missing, malformed or unexpected policy fields.
 fn check_fields(
     root: &Value,
     record: &Value,
@@ -363,6 +360,8 @@ fn check_tagged_array(
     Ok(())
 }
 
+// Serde buffers internally tagged records before selecting the variant. Check
+// those fields against the selected shape so type errors retain their pointer.
 fn check_tagged_record(
     root: &Value,
     record: Option<&Value>,
@@ -651,9 +650,10 @@ fn attach_capability(issue: &mut ValidationIssue, value: &Value) {
         let index = path.split('/').next()?.parse::<usize>().ok()?;
         value.pointer(base)?.get(index)
     };
-    if let Some(id) = record("/capabilities")
-        .and_then(|capability| capability.get("id"))
-        .or_else(|| record("/policy/grants").and_then(|grant| grant.get("capabilityId")))
+    let capability = record("/capabilities").and_then(|capability| capability.get("id"));
+    let grant = record("/policy/grants").and_then(|grant| grant.get("capabilityId"));
+    if let Some(id) = capability
+        .or(grant)
         .and_then(Value::as_str)
         .filter(|id| syntax::is_key(id))
     {

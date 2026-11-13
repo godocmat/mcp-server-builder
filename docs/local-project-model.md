@@ -40,3 +40,9 @@ git diff --check
 ```
 
 The non-desktop workspace passed 26 tests. The fixtures exercised byte-for-byte round trips, malformed and future versions, invalid fields and references, credential canaries, zero connections to a configured loopback origin, native cross-process locking, competing saves, an external edit during staging, a Windows sharing violation at replacement, last-valid recovery, catalog rollback and repair, and consistent SQLite backup with pending WAL data. The existing CLI human and JSON smoke both exited `0`. An unsupported smoke contract exited `2` with `input.invalid` at `/contractVersion`.
+
+## Integrated verification
+
+The Windows integration passed Rust formatting, both locked workspace builds, 44 locked workspace tests, Clippy with warnings denied and the CLI smoke. The embedded build used SHA-256-verified browser assets from the F2 and M2 integration with the same Angular sources and lockfile. [Foundation checks](ci.md#reproduce-the-checks)
+
+The schema 1 fixture builds an M2 policy directly from its typed requests. The regression exercises the allowed REST call and its narrower grant limits, the allowed file read and a denial outside that file path. Additional checks preserve exact source bytes across origin normalization and report invalid policy fields with their JSON Pointers.
