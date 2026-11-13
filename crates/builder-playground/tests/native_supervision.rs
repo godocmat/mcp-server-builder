@@ -30,6 +30,7 @@ use windows_sys::Win32::{
 const CHILD_TEST: &str = "native_supervision_child_fixture";
 const FIXTURE_MODE: &str = "MCP_BUILDER_SUPERVISION_FIXTURE_MODE";
 const UNRELATED_HANDLE: &str = "MCP_BUILDER_SUPERVISION_UNRELATED_HANDLE";
+const LARGE_INPUT_SIZE: usize = 256_000;
 const REPORT_MARKER: &[u8] = b"SUPERVISION_REPORT_V1\0";
 const STDERR_MARKER: &[u8] = b"supervision fixture stderr\n";
 
@@ -70,8 +71,9 @@ fn native_supervision_child_fixture() {
             write_report(actual.as_bytes());
             io::stderr().write_all(STDERR_MARKER).unwrap();
 
-            // A large write proves the async pipe drains under backpressure.
-            let mut input = vec![0; 70_000];
+            // Let the writer reach backpressure before consuming and verifying the message.
+            std::thread::sleep(Duration::from_millis(100));
+            let mut input = vec![0; LARGE_INPUT_SIZE];
             io::stdin().read_exact(&mut input).unwrap();
             assert!(input.iter().all(|&byte| byte == b'x'));
             assert_eq!(io::stdin().read(&mut [0]).unwrap(), 0);
@@ -286,10 +288,15 @@ async fn preserves_native_arguments_environment_and_stdio() {
     .unwrap();
     assert_eq!(stderr_marker, STDERR_MARKER);
 
-    tokio::time::timeout(Duration::from_secs(5), stdin.write_all(&vec![b'x'; 70_000]))
-        .await
-        .unwrap()
-        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        stdin
+            .write_all(&vec![b'x'; LARGE_INPUT_SIZE])
+            .await
+            .unwrap();
+        stdin.shutdown().await.unwrap();
+    })
+    .await
+    .unwrap();
     child.stop().await.unwrap();
     assert_exited(&process);
     assert_eq!(

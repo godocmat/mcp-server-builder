@@ -103,6 +103,7 @@ pub(super) struct InputControl(Arc<Mutex<InputState>>);
 struct InputState {
     pipe: Option<NamedPipeServer>,
     waker: Option<Waker>,
+    needs_flush: bool,
 }
 
 impl Input {
@@ -110,6 +111,7 @@ impl Input {
         let control = Arc::new(Mutex::new(InputState {
             pipe: Some(pipe),
             waker: None,
+            needs_flush: false,
         }));
         (
             Self {
@@ -168,22 +170,43 @@ impl AsyncWrite for Input {
         // Tokio's Windows pipe implementation may queue a copy of an entire write.
         let bytes = &bytes[..bytes.len().min(PIPE_CAPACITY as usize)];
         let result = Pin::new(pipe).poll_write(context, bytes);
-        if result.is_pending() {
-            state.waker = Some(context.waker().clone());
+        match &result {
+            Poll::Pending => state.waker = Some(context.waker().clone()),
+            Poll::Ready(Ok(written)) => {
+                state.needs_flush |= *written > 0;
+                state.waker = None;
+            }
+            Poll::Ready(Err(_)) => state.waker = None,
         }
         result
     }
 
     fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
         let mut state = self.state();
-        match state.pipe.as_mut() {
-            Some(pipe) => Pin::new(pipe).poll_flush(context),
-            None => Poll::Ready(Ok(())),
+        if !state.needs_flush {
+            return Poll::Ready(Ok(()));
         }
+        let Some(pipe) = state.pipe.as_mut() else {
+            return Poll::Ready(Ok(()));
+        };
+        // Tokio's pipe flush is immediate, although its Windows backend can still be
+        // completing an overlapped write. An empty write transfers no bytes and waits
+        // on the same write slot, including any error from the outstanding write.
+        let result = Pin::new(pipe).poll_write(context, &[]).map_ok(|_| ());
+        if result.is_pending() {
+            state.waker = Some(context.waker().clone());
+        } else {
+            state.needs_flush = false;
+            state.waker = None;
+        }
+        result
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        close_input(&self.control);
-        Poll::Ready(Ok(()))
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let result = self.as_mut().poll_flush(context);
+        if result.is_ready() {
+            close_input(&self.control);
+        }
+        result
     }
 }
