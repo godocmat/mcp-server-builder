@@ -38,3 +38,13 @@ The previous export stays usable. The generator carries its tracked project-owne
 ```
 
 The CLI's JSON envelope reports the file list or conflicts without showing file contents. A blocked publish returns exit `6` with `export.conflict`. Invalid or stale resolution files return exit `2` with `export.invalid_resolution`. The shared application service exposes the same plan and outcomes for the desktop workflow.
+
+## Verification
+
+On Windows 11 Pro x64 build 26200.9974 with Rust 1.99.1, two CLI exports from the catalog fixture matched across all 61 recorded files and `generation.json`. The CLI returned field diagnostics for invalid input, preserved an edited handler, blocked an unresolved and a stale file decision, regenerated the reviewed README, and excluded the previous operator config. The generator's native tests exercised a late destination collision and a failed source recheck followed by a successful retry.
+
+A CLI-generated workspace in a separate directory passed locked offline build, formatting, all-target Clippy and 23 workspace tests. The four raw stdio cases exercised both MCP revisions, default-deny discovery, and rejection of approval reuse after a manifest change. Inspector CLI 2.15.0 on Node 24.22.3 launched the standalone Windows binary over stdio. Both revisions listed and invoked tools, read the fixed and templated resources, and listed and rendered a prompt. The local upstream observed exactly two approved requests. [MCP testing matrix](testing.md#wire-and-client-interoperability)
+
+The production generator's eight publication tests and four export integration tests passed on each of tmpfs and ext4 in an offline x64 QEMU guest running the Ubuntu 24.04 kernel `6.8.0-147-generic`. The test binaries used Rust 1.99.1 and the locked static musl build. Linux standalone build and wire verification remain pending. macOS publication is unsupported.
+
+The foundation workflow generates, builds and tests the export on its Windows and Linux workers. Redistribution approval for the bundled runtime and scaffolding remains pending under ADR-006. [CI commands](ci.md#reproduce-the-checks) · [Runtime distribution decision](../DECISIONS.md#adr-006--standalone-generation-and-license-continuity)

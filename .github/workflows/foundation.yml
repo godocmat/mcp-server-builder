@@ -117,6 +117,10 @@ jobs:
       - name: Check CLI text and versioned JSON
         run: node .github/ci/cli-smoke.mjs
 
+      - name: Build and exercise a generated standalone server
+        if: runner.os == 'Windows' || runner.os == 'Linux'
+        run: node .github/ci/standalone-smoke.mjs
+
       - name: Check six locked rmcp profiles
         run: node .github/ci/sdk-probes.mjs
 
