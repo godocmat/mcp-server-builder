@@ -9,7 +9,7 @@ use tokio::io::AsyncWrite;
 use tokio::net::windows::named_pipe::NamedPipeServer;
 use uuid::Uuid;
 use windows_sys::Win32::{
-    Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation},
+    Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE_FLAG_INHERIT, SetHandleInformation},
     Storage::FileSystem::{
         CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, OPEN_EXISTING,
         PIPE_ACCESS_INBOUND, PIPE_ACCESS_OUTBOUND, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
@@ -81,13 +81,13 @@ impl PipePair {
         Ok(Self { parent, child })
     }
 
-    pub(super) fn allow_inheritance(&self) -> io::Result<HANDLE> {
+    pub(super) fn allow_inheritance(&self) -> io::Result<()> {
         let child = self.child.as_raw_handle();
         // SAFETY: The child handle is live. CreateProcessW will use an explicit handle list.
         if unsafe { SetHandleInformation(child, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(child)
+        Ok(())
     }
 }
 

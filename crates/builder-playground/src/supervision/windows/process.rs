@@ -127,9 +127,9 @@ fn launch_in_job(
 
     let job_handles = [job.as_raw_handle()];
     let stdio = [
-        stdin.allow_inheritance()?,
-        stdout.allow_inheritance()?,
-        stderr.allow_inheritance()?,
+        stdin.child.as_raw_handle(),
+        stdout.child.as_raw_handle(),
+        stderr.child.as_raw_handle(),
     ];
     // These arrays outlive the attribute list. They are borrowed by Windows until deletion.
     let mut attributes = AttributeList::new(2)?;
@@ -145,6 +145,11 @@ fn launch_in_job(
     ] = stdio;
     startup.lpAttributeList = attributes.as_ptr();
     let mut information = PROCESS_INFORMATION::default();
+    // Windows requires inheritable flags even with HANDLE_LIST. Set them as late
+    // as possible. Other process launchers in this host also need explicit lists.
+    stdin.allow_inheritance()?;
+    stdout.allow_inheritance()?;
+    stderr.allow_inheritance()?;
     // SAFETY: All terminated strings and handles live through the call. The command line
     // buffer is writable, the Unicode environment is double-terminated, and startup
     // contains the live extended attributes. Only the three listed handles are inherited.

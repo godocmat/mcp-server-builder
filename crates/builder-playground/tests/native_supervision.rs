@@ -18,7 +18,7 @@ use builder_project::ManifestRevision;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use windows_sys::Win32::{
     Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
-    Storage::FileSystem::SYNCHRONIZE,
+    Storage::FileSystem::{FILE_TYPE_PIPE, GetFileType, SYNCHRONIZE},
     System::{
         JobObjects::IsProcessInJob,
         Threading::{
@@ -29,6 +29,7 @@ use windows_sys::Win32::{
 
 const CHILD_TEST: &str = "native_supervision_child_fixture";
 const FIXTURE_MODE: &str = "MCP_BUILDER_SUPERVISION_FIXTURE_MODE";
+const UNRELATED_HANDLE: &str = "MCP_BUILDER_SUPERVISION_UNRELATED_HANDLE";
 const REPORT_MARKER: &[u8] = b"SUPERVISION_REPORT_V1\0";
 const STDERR_MARKER: &[u8] = b"supervision fixture stderr\n";
 
@@ -58,6 +59,12 @@ fn native_supervision_child_fixture() {
         Ok("report") => {
             let args: Vec<_> = env::args_os().skip(1).collect();
             let mut environment: Vec<_> = env::vars_os().collect();
+            let candidate = env::var(UNRELATED_HANDLE)
+                .unwrap()
+                .parse::<usize>()
+                .unwrap();
+            // SAFETY: GetFileType validates the candidate without adopting it.
+            assert_ne!(unsafe { GetFileType(candidate as _) }, FILE_TYPE_PIPE);
             environment.sort();
             let actual = format!("{args:?}\n{environment:?}\n");
             write_report(actual.as_bytes());
@@ -177,6 +184,31 @@ fn assert_exited(handle: &OwnedHandle) {
     );
 }
 
+fn unrelated_inheritable_handles() -> (OwnedHandle, OwnedHandle) {
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::System::Pipes::CreatePipe;
+
+    let mut read_handle = null_mut();
+    let mut write_handle = null_mut();
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+        bInheritHandle: 1,
+        ..Default::default()
+    };
+    // SAFETY: The output handles and correctly sized security attributes are live.
+    assert_ne!(
+        unsafe { CreatePipe(&mut read_handle, &mut write_handle, &attributes, 0) },
+        0
+    );
+    // SAFETY: CreatePipe returned two new owned handles.
+    unsafe {
+        (
+            OwnedHandle::from_raw_handle(read_handle),
+            OwnedHandle::from_raw_handle(write_handle),
+        )
+    }
+}
+
 #[tokio::test]
 async fn preserves_native_arguments_environment_and_stdio() {
     let cwd = tempfile::tempdir().unwrap();
@@ -194,6 +226,8 @@ async fn preserves_native_arguments_environment_and_stdio() {
     let executable = cwd.path().join("supervision fixture ž.exe");
     fs::copy(&spec.executable, &executable).unwrap();
     spec.executable = executable;
+    let (unrelated_read, _unrelated_write) = unrelated_inheritable_handles();
+    let unrelated_handle = (unrelated_read.as_raw_handle() as usize).to_string();
     spec.environment.extend([
         LaunchEnvironment {
             name: "mixed_Case".into(),
@@ -206,6 +240,10 @@ async fn preserves_native_arguments_environment_and_stdio() {
         LaunchEnvironment {
             name: "ZZ_EMPTY".into(),
             source: EnvironmentSource::Literal(OsString::new()),
+        },
+        LaunchEnvironment {
+            name: UNRELATED_HANDLE.into(),
+            source: EnvironmentSource::Literal(unrelated_handle.clone().into()),
         },
     ]);
     let review = review_launch(&spec, binding()).unwrap();
@@ -231,6 +269,7 @@ async fn preserves_native_arguments_environment_and_stdio() {
         ("mixed_Case", "with=equals ž"),
         ("SYNTHETIC_SECRET", "synthetic value"),
         ("ZZ_EMPTY", ""),
+        (UNRELATED_HANDLE, unrelated_handle.as_str()),
     ];
     expected_environment.sort();
     assert_eq!(
@@ -316,7 +355,7 @@ async fn changed_inputs_and_missing_credentials_have_no_child_side_effect() {
         Some(LaunchError::CredentialUnavailable)
     );
     let previous_directory = scratch.path().join("previous directory");
-    fs::rename(&cwd, previous_directory).unwrap();
+    fs::rename(&cwd, &previous_directory).unwrap();
     fs::create_dir(&cwd).unwrap();
     assert_eq!(
         spawn_reviewed(&spec, binding(), review.digest(), never_resolve).err(),
@@ -324,6 +363,13 @@ async fn changed_inputs_and_missing_credentials_have_no_child_side_effect() {
     );
 
     let review = review_launch(&spec, binding()).unwrap();
+    let linked = scratch.path().join("additional fixture name.exe");
+    fs::hard_link(&executable, &linked).unwrap();
+    assert_eq!(
+        spawn_reviewed(&spec, binding(), review.digest(), never_resolve).err(),
+        Some(LaunchError::ReviewMismatch)
+    );
+    fs::remove_file(linked).unwrap();
     OpenOptions::new()
         .append(true)
         .open(&executable)
@@ -346,6 +392,8 @@ async fn changed_inputs_and_missing_credentials_have_no_child_side_effect() {
 
     let review = review_launch(&spec, binding()).unwrap();
     let mut child = spawn_reviewed(&spec, binding(), review.digest(), |_| {
+        assert!(fs::rename(&cwd, scratch.path().join("moved cwd")).is_err());
+        assert!(OpenOptions::new().append(true).open(&executable).is_err());
         Some("synthetic".into())
     })
     .unwrap();

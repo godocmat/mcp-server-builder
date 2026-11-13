@@ -47,6 +47,10 @@ impl LockedPath {
         let mut full_path = volume.clone();
         let mut file = open_component(&full_path, true, true)?;
         verify_ntfs(&file)?;
+        if directory && components.is_empty() {
+            // Pin the selected volume root with the same sharing rules as other cwd targets.
+            file = open_component(&full_path, true, false)?;
+        }
         let normalized_volume = final_name(&file, VOLUME_NAME_GUID)?;
         if !compare_names(&normalized_volume, &volume)?.is_eq() {
             return Err(invalid_data());
@@ -242,6 +246,7 @@ fn open_component(path: &[u16], directory: bool, volume: bool) -> io::Result<Fil
     let info = file_info(&file)?;
     if info.dwFileAttributes & UNSUPPORTED_ATTRIBUTES != 0
         || directory != (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0)
+        || (!directory && info.nNumberOfLinks != 1)
     {
         return Err(invalid_data());
     }

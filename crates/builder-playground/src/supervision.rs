@@ -5,7 +5,8 @@
 //! by `review_launch` describes a proposed operation. It grants no permission on its own.
 //! The Windows backend currently supports native `.exe` files on local NTFS and assigns
 //! the process to a kill-on-close job at creation. It contains normal child processes
-//! created within that job. The program still runs with the operator's OS privileges.
+//! created within that job. The program still runs with the operator's OS privileges,
+//! and the installation, its dependencies and the working directory must be trusted.
 
 use std::ffi::OsString;
 use std::fmt;
