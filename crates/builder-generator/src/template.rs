@@ -43,6 +43,7 @@ pub(crate) fn render(_manifest: &ValidatedManifest) -> Vec<RenderedFile> {
         "src/main.rs",
         "tests/stdio.rs",
         "crates/mcp-transport/Cargo.toml",
+        "crates/mcp-transport/src/lib.rs",
     );
     files.push(file(
         "rust-toolchain.toml",
@@ -107,7 +108,6 @@ pub(crate) fn render(_manifest: &ValidatedManifest) -> Vec<RenderedFile> {
     shared!(
         "mcp-transport",
         "src/handler.rs",
-        "src/lib.rs",
         "src/stdio.rs",
         "src/stdio/frames.rs",
         "src/stdio/frames/tests.rs",
