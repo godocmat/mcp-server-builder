@@ -107,16 +107,18 @@ impl Check {
             );
             return;
         }
-        self.require(
-            if object_root {
-                compile_tool_schema(value).is_ok()
-            } else {
-                compile_schema(value).is_ok()
-            },
-            IssueCode::Schema,
-            suffix,
-            "Use a valid JSON Schema 2020-12 schema with in-document references.",
-        );
+        let (result, message) = if object_root {
+            (
+                compile_tool_schema(value),
+                "Use a valid JSON Schema 2020-12 tool schema with in-document references and no MCP parameter headers.",
+            )
+        } else {
+            (
+                compile_schema(value),
+                "Use a valid JSON Schema 2020-12 schema with in-document references.",
+            )
+        };
+        self.require(result.is_ok(), IssueCode::Schema, suffix, message);
     }
 }
 

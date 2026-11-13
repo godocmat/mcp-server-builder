@@ -2,15 +2,17 @@ use jsonschema::{ValidationError, Validator, draft202012};
 use serde_json::Value;
 
 const DRAFT_2020_12: &str = "https://json-schema.org/draft/2020-12/schema";
+const MAX_SCHEMA_DEPTH: usize = 64;
+const MAX_SCHEMA_BYTES: usize = 4 * 1024 * 1024;
 
 /// The shared offline JSON Schema 2020-12 compiler used by project and runtime validation.
 pub fn compile_schema(schema: &Value) -> Result<Validator, ValidationError<'static>> {
-    if !uses_local_schema_refs(schema) {
+    if !schema_fields_are_supported(schema, false, MAX_SCHEMA_DEPTH) {
         return Err(ValidationError::custom(
             "Use JSON Schema 2020-12 with in-document references.",
         ));
     }
-    draft202012::options().offline().build(schema)
+    build(schema)
 }
 
 pub fn compile_tool_schema(schema: &Value) -> Result<Validator, ValidationError<'static>> {
@@ -19,25 +21,30 @@ pub fn compile_tool_schema(schema: &Value) -> Result<Validator, ValidationError<
             "Declare an object-root tool schema.",
         ));
     }
-    if has_parameter_header(schema) {
+    if !schema_fields_are_supported(schema, true, MAX_SCHEMA_DEPTH) {
         return Err(ValidationError::custom(
-            "The pilot tool schema does not support MCP parameter headers.",
+            "Use local JSON Schema 2020-12 tool schemas without MCP parameter headers.",
         ));
     }
-    compile_schema(schema)
+    build(schema)
 }
 
-fn has_parameter_header(value: &Value) -> bool {
-    match value {
-        Value::Object(fields) => {
-            fields.contains_key("x-mcp-header") || fields.values().any(has_parameter_header)
-        }
-        Value::Array(items) => items.iter().any(has_parameter_header),
-        _ => false,
+fn build(schema: &Value) -> Result<Validator, ValidationError<'static>> {
+    if !crate::execution::json_depth_is_bounded(schema, MAX_SCHEMA_DEPTH)
+        || crate::execution::serialized_len(schema, MAX_SCHEMA_BYTES).is_none()
+    {
+        return Err(ValidationError::custom(
+            "The JSON Schema exceeds its depth or byte limit.",
+        ));
     }
+    draft202012::options().offline().build(schema)
 }
 
-fn uses_local_schema_refs(schema: &Value) -> bool {
+fn schema_fields_are_supported(schema: &Value, tool: bool, depth: usize) -> bool {
+    let Some(next_depth) = depth.checked_sub(1) else {
+        return false;
+    };
+    let child = |schema: &Value| schema_fields_are_supported(schema, tool, next_depth);
     match schema {
         Value::Bool(_) => true,
         Value::Object(fields) => fields.iter().all(|(key, value)| match key.as_str() {
@@ -48,14 +55,13 @@ fn uses_local_schema_refs(schema: &Value) -> bool {
             "$ref" | "$dynamicRef" => value
                 .as_str()
                 .is_some_and(|reference| reference.starts_with('#')),
+            "x-mcp-header" => !tool,
             "properties" | "patternProperties" | "dependentSchemas" | "$defs" | "definitions" => {
-                value
-                    .as_object()
-                    .is_some_and(|map| map.values().all(uses_local_schema_refs))
+                value.as_object().is_some_and(|map| map.values().all(child))
             }
             "allOf" | "anyOf" | "oneOf" | "prefixItems" => value
                 .as_array()
-                .is_some_and(|values| values.iter().all(uses_local_schema_refs)),
+                .is_some_and(|values| values.iter().all(child)),
             "items"
             | "contains"
             | "propertyNames"
@@ -66,7 +72,7 @@ fn uses_local_schema_refs(schema: &Value) -> bool {
             | "else"
             | "unevaluatedItems"
             | "unevaluatedProperties"
-            | "contentSchema" => uses_local_schema_refs(value),
+            | "contentSchema" => child(value),
             _ => true,
         }),
         _ => false,

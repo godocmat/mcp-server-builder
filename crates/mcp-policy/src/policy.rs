@@ -317,10 +317,12 @@ impl Policy {
         capability_id: &str,
         operation: Operation,
     ) -> impl Iterator<Item = (&Grant, &ApprovedGrant)> {
-        self.grants.values().filter_map(move |(requested, index)| {
-            (requested.capability_id == capability_id && requested.operation == operation)
-                .then(|| (requested, &self.operator.approved_grants[*index]))
-        })
+        self.grants
+            .values()
+            .filter(move |(requested, _)| {
+                requested.capability_id == capability_id && requested.operation == operation
+            })
+            .map(|(requested, index)| (requested, &self.operator.approved_grants[*index]))
     }
 
     fn caller(&self, principal: &Principal<'_>, now: Instant) -> Result<&CallerGrant, DenyReason> {
