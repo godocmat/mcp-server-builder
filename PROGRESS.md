@@ -79,7 +79,7 @@ The Windows policy suite passed 15 tests, including synthetic-secret scans for s
 
 This baseline combines F2 `d643794` and M2 `b80e47c`. The combined Cargo lock retains F2's WebDriver dependencies and adds M2's dependency edges. The first GitHub Actions run still requires a GitHub remote. M1's project services and their shared policy integration are the remaining prerequisites for M3. [Hosted verification](docs/ci.md#first-hosted-run) · [MCP runtime dependencies](TASKS.md#local-mvp)
 
-On Windows, the integrated checkout passed Rust formatting, 17 locked workspace tests and Clippy with warnings denied for the non-desktop crates. The CLI passed help, version, text and versioned JSON checks. On the primary Node and npm pair, Angular passed the locked install, formatting, production build, TypeScript, two IPC component tests and coverage collection. Actionlint passed and both lockfiles stayed intact.
+On Windows, the integrated checkout passed Rust formatting, both locked workspace builds, all 17 workspace tests with embedded Angular assets and workspace Clippy with warnings denied. The CLI passed help, version, text and versioned JSON checks. On the primary Node and npm pair, Angular passed the locked install, formatting, production build, TypeScript, two IPC component tests and coverage collection. Actionlint passed and both lockfiles stayed intact.
 
 ## Verification carried forward
 
