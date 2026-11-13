@@ -29,6 +29,8 @@ The separate `server-http,client-http-rustls` test runs the SDK's Auto lifecycle
 
 On Windows 11 Pro build 26200 x64, Rust 1.99.1 passed nine locked HTTP server tests and two SDK Auto tests at `379c55d`. Feature Clippy, the M3 stdio server and client wire suites, the six locked SDK profile builds and the CLI smoke also passed. The featureless normal dependency graph contains no MCP SDK or HTTP stack. The Cargo lock update records direct dependency edges for the feature and tests while keeping the SDK and resolved crate versions pinned.
 
+Ubuntu 24.04.3 amd64 userspace under WSL2 passed the nine server socket tests and all eleven tests in the combined server and Rustls-client run at `379c55d`. Formatting and Clippy passed for both HTTP checks. The stdio server passed three framing tests and six subprocess cases, and the stdio client passed six Auto cases. Both stdio Clippy checks passed.
+
 ```powershell
 cargo test --locked -p mcp-transport --no-default-features --features server-http
 cargo clippy --locked -p mcp-transport --no-default-features --features server-http --all-targets -- -D warnings
@@ -40,4 +42,4 @@ The foundation workflow runs these cases on the existing native matrix. The loop
 
 ### Inspector CLI
 
-Inspector 2.15.0 with Inspector client and core 2.4.0 passed explicit modern and legacy `--method initialize` and `tools/call` for `lookup_item` on both real stdio and loopback HTTP. Each tool call returned structured ID `"42"`. The Windows 11 x64 trial used Node/npm 24.22.3/11.19.1 and 26.13.1/11.20.0 against the synthetic transport at `0525021` through an ephemeral launch wrapper. The scratch install used `npm ci --engine-strict --ignore-scripts` and lock SHA-256 `b8616cc862d792ad640cf3d6c700ff2c9a74e798febd2f10bc8ea93029ecf902`. The CLI trial used an ephemeral profile. M6/M7/M10 carry forward standalone export evidence. [Inspector CLI reference](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector/cli)
+Inspector 2.15.0 with Inspector client and core 2.4.0 passed `--method initialize` and `tools/call lookup_item` in all four revision and transport combinations on Windows 11 x64 and Ubuntu 24.04.3 amd64. The CLI reported `2026-07-28` for modern discovery and `2025-11-25` for legacy initialization. Each tool call returned `structuredContent.id` as the string `"42"`. Both OSes tested Node/npm 24.22.3/11.19.1 and 26.13.1/11.20.0 against the synthetic transport at `0525021` through a temporary launch wrapper. Each scratch install used `npm ci --engine-strict --ignore-scripts` and lock SHA-256 `b8616cc862d792ad640cf3d6c700ff2c9a74e798febd2f10bc8ea93029ecf902`. The CLI used an ephemeral profile. M6/M7/M10 carry forward standalone export evidence. [Inspector CLI reference](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector/cli)

@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-13 November 2026 · M3 runtime and stdio integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+13 November 2026 · M4 loopback HTTP integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -103,7 +103,7 @@ The client auto probe fell back after a legacy error or a silent discovery probe
 
 The opt-in `server-http` fixture serves the M3 runtime on ephemeral IPv4 loopback sockets. Both revisions passed the independent socket checks for capabilities, schema and policy outcomes, routing headers, JSON and SSE, session lifecycle and cancellation isolation. Issued legacy sessions preserve work across SSE disconnect and honor explicit cancellation. The separate sessionless SDK comparison acknowledged cancellation without stopping the active call. M4 keeps the exact `rmcp = "=3.9.0"` pin and uses a request-scoped SDK service to open modern adapter SSE before the first handler message. [Wire results](docs/loopback-http.md#observed-wire-behavior) · [ADR-002](DECISIONS.md#adr-002--dual-revision-mcp-and-sdk-boundary)
 
-Windows 11 x64 passed nine HTTP socket tests and two SDK Auto tests, feature Clippy, both stdio wire suites and the six locked SDK profiles. The foundation workflow adds the server HTTP and Auto checks to the native matrix. Inspector CLI 2.15.0 also completed explicit modern and legacy handshakes and calls over both transports with Node 24.22.3 and 26.13.1 on Windows. [M4 verification and commands](docs/loopback-http.md#verification) · [CI commands](docs/ci.md#reproduce-the-checks)
+Windows 11 x64 and Ubuntu 24.04.3 amd64 under WSL2 passed nine HTTP socket tests and two SDK Auto tests, feature Clippy and both stdio wire suites. Inspector CLI 2.15.0 passed discovery and tool calls on both revisions and both transports with Node 24.22.3 and 26.13.1 on each OS. The foundation workflow adds the server HTTP and Auto checks to the native matrix. [M4 verification and commands](docs/loopback-http.md#verification) · [CI commands](docs/ci.md#reproduce-the-checks)
 
 ## Verification carried forward
 
