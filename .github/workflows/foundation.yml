@@ -120,6 +120,12 @@ jobs:
           AWS_LC_SYS_PREBUILT_NASM: "1"
         run: node .github/ci/sdk-probes.mjs
 
+      - name: Check MCP stdio over subprocess pipes
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo test --locked -p mcp-transport --no-default-features --features server-stdio
+          cargo clippy --locked -p mcp-transport --no-default-features --features server-stdio --all-targets -- -D warnings
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:

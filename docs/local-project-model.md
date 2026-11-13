@@ -43,6 +43,15 @@ The non-desktop workspace passed 26 tests. The fixtures exercised byte-for-byte 
 
 ## Integrated verification
 
-The Windows integration passed Rust formatting, both locked workspace builds, 44 locked workspace tests, Clippy with warnings denied and the CLI smoke. The embedded build used SHA-256-verified browser assets from the F2 and M2 integration with the same Angular sources and lockfile. [Foundation checks](ci.md#reproduce-the-checks)
+Independent verification of the integrated baseline `1dba1e9` on Windows passed Rust formatting, both locked workspace builds, all 44 locked workspace tests, all-target workspace Clippy with warnings denied, the CLI smoke and all six locked SDK profiles. The embedded build used SHA-256-verified browser assets from the F2 and M2 integration with the same Angular sources and lockfile. [Foundation checks](ci.md#reproduce-the-checks)
+
+On the same baseline, Ubuntu 24.04.3 amd64 userspace under WSL2 passed 43 tests across the project, application and policy crates, including the native save and recovery cases, and all-target Clippy with warnings denied.
+
+```sh
+cargo test --locked -p builder-app -p builder-project -p mcp-policy
+cargo clippy --locked -p builder-app -p builder-project -p mcp-policy --all-targets -- -D warnings
+```
+
+The first GitHub-hosted matrix run is pending a repository remote. [Hosted verification](ci.md#first-hosted-run)
 
 The schema 1 fixture builds an M2 policy directly from its typed requests. The regression exercises the allowed REST call and its narrower grant limits, the allowed file read and a denial outside that file path. Additional checks preserve exact source bytes across origin normalization and report invalid policy fields with their JSON Pointers.

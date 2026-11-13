@@ -34,11 +34,15 @@ cargo clippy --locked --workspace --all-targets --features mcp-builder-desktop/c
 cargo build --locked --workspace
 node .github/ci/cli-smoke.mjs
 node .github/ci/sdk-probes.mjs
+cargo test --locked -p mcp-transport --no-default-features --features server-stdio
+cargo clippy --locked -p mcp-transport --no-default-features --features server-stdio --all-targets -- -D warnings
 rustup component add llvm-tools-preview
 ./.github/ci/rust-coverage.ps1
 ```
 
-The Rust and Angular tests read the same [versioned fixture](../crates/builder-app/tests/fixtures/workspace-smoke.json). The CLI check exercises help, version, human success and rejection, JSON success, unsupported version and invalid options. It checks exits `0` and `2`, stdout and stderr, JSON version and fields, and correlation IDs against the Rust trace. The SDK script runs six locked builds of `mcp-transport` with `--no-default-features` and exactly one selection per invocation. It checks the resolved features for server stdio, server HTTP, their combination, client stdio and the two HTTP clients. The Rustls and native TLS builds each assert their own reqwest feature and the absence of the other. M3/M4 own real stdio and HTTP wire tests and the Inspector trial. [F1 SDK feature graphs](development.md#mcp-sdk-build-probes)
+The Rust and Angular tests read the same [versioned fixture](../crates/builder-app/tests/fixtures/workspace-smoke.json). The CLI check exercises help, version, human success and rejection, JSON success, unsupported version and invalid options. It checks exits `0` and `2`, stdout and stderr, JSON version and fields, and correlation IDs against the Rust trace. The SDK script runs six locked builds of `mcp-transport` with `--no-default-features` and exactly one selection per invocation. It checks the resolved features for server stdio, server HTTP, their combination, client stdio and the two HTTP clients. The Rustls and native TLS builds each assert their own reqwest feature and the absence of the other. [F1 SDK feature graphs](development.md#mcp-sdk-build-probes)
+
+The M3 CI step selects `server-stdio` alone so the feature-gated subprocess tests run on each matrix worker. The harness exercises both MCP revisions through real stdin and stdout pipes. M4 covers loopback HTTP, and the Inspector trial supplies separate client evidence. [Wire and client interoperability](testing.md#wire-and-client-interoperability)
 
 Switch to Node `26.13.1` and bundled npm `11.20.0`. The alternate Angular check runs the same install, format, build and type checks with the ordinary test command. The Tauri CLI repeats the production Angular build hook and produces an embedded debug binary.
 
@@ -89,6 +93,6 @@ Foundation CI runs on pull requests, pushes to `master`, and manual dispatch. It
 
 ## First hosted run
 
-This worktree has no Git remote. Use the first pull request run after the branch reaches GitHub. A push to `master` also runs the workflow, and manual dispatch becomes available once the workflow is on the default branch. Record the run URL, commit and image revisions for all three rows. Check both Node pairs, the target-specific graphs, both LCOV files per runner and each native trial's reported outcome. Apple silicon compilation and WKWebView, Windows Server 2025 toolchain discovery and WebView2, Ubuntu runner provisioning, GitHub artifact upload and the actual Actions job results require that run. [GitHub workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
+This worktree has no Git remote. Use the first pull request run after the branch reaches GitHub. A push to `master` also runs the workflow, and manual dispatch becomes available once the workflow is on the default branch. Record the run URL, commit and image revisions for all three rows. Check both Node pairs, the target-specific graphs, the stdio subprocess tests, both LCOV files per runner and each native trial's reported outcome. Apple silicon compilation and WKWebView, Windows Server 2025 toolchain discovery and WebView2, Ubuntu runner provisioning, GitHub artifact upload and the actual Actions job results require that run. [GitHub workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
 
-F2 changes the root `Cargo.lock` for the optional native test provider and the desktop package lock for V8 coverage. When integrating M1 or M2, preserve the locked entries from both changes and rerun the workspace gates on the merged commit. M3/M4 can extend the probe job with wire and Inspector tests after their fixtures land. M8/M10 own pilot GUI workflows and R2/R4 own packaged native evidence.
+F2 changes the root `Cargo.lock` for the optional native test provider and the desktop package lock for V8 coverage. When integrating M1 or M2, preserve the locked entries from both changes and rerun the workspace gates on the merged commit. M8/M10 own pilot GUI workflows and R2/R4 own packaged native evidence.
