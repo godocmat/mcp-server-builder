@@ -27,6 +27,7 @@ pub trait PreparedCall: Send {
 
     /// Use the prepared target only after admission. Any changed target requires
     /// `authorize_target` before effects, with the previous deadline and limits retained.
+    /// Return promptly after a denial so the runtime can report the typed decision.
     fn execute<'a>(
         self: Box<Self>,
         context: &'a AdapterContext<'_>,

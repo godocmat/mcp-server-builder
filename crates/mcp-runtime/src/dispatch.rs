@@ -360,7 +360,10 @@ async fn wait_for_preparation<T>(
     tokio::select! {
         biased;
         () = cancellation.cancelled() => Err(ErrorKind::Cancelled),
-        () = tokio::time::sleep_until(deadline.into()) => Err(ErrorKind::TimedOut),
+        () = tokio::time::sleep_until(deadline.into()) => {
+            cancellation.cancel();
+            Err(ErrorKind::TimedOut)
+        }
         result = future => Ok(result),
     }
 }
