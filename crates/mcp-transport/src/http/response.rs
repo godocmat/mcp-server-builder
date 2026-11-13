@@ -100,7 +100,7 @@ where
             Response::from_parts(parts, Body::from(bytes))
         }
         Some("text/event-stream") => {
-            // The pinned SDK emits one complete SSE event per body data frame.
+            // Axum and the pinned SDK emit one complete SSE event per body data frame.
             // Keep the body unbuffered so disconnect reaches the SDK stream guard.
             let chunks = body.into_data_stream();
             let body = futures_util::stream::unfold(Some((chunks, id)), |state| async move {

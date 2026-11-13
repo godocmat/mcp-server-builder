@@ -2666,6 +2666,7 @@ dependencies = [
  "hyper-util",
  "mcp-policy",
  "mcp-runtime",
+ "reqwest",
  "rmcp",
  "serde_json",
  "tokio",

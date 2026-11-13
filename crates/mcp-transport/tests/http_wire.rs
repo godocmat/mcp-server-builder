@@ -2,6 +2,9 @@
 mod client;
 #[path = "http_wire/fixture.rs"]
 mod fixture;
+#[cfg(feature = "client-http-rustls")]
+#[path = "http_wire/client_auto.rs"]
+mod http_client_auto;
 
 use std::time::Duration;
 
@@ -17,6 +20,7 @@ use client::{
 use fixture::Server;
 
 const DIAGNOSTIC: &str = "mcp-server-builder/diagnostic";
+const CANCELLATION_WAIT: Duration = Duration::from_secs(1);
 
 #[tokio::test]
 async fn modern_and_legacy_exercise_the_same_runtime_catalog() {
@@ -62,6 +66,15 @@ async fn modern_and_legacy_exercise_the_same_runtime_catalog() {
         assert_eq!(tools[0]["inputSchema"]["type"], "object");
         assert_eq!(tools[0]["outputSchema"]["required"], json!(["id"]));
         assert_cache_if_modern(&listed["result"], modern);
+        let cursor = exchange(
+            &server,
+            &rpc(28, "tools/list", json!({"cursor":"invalid-cursor"}), modern),
+            modern,
+            session,
+        )
+        .await;
+        assert_eq!(cursor["error"]["code"], -32602);
+        assert_diagnostic(&cursor["error"]["data"], "input.invalid_cursor");
         let result = exchange(
             &server,
             &tool(11, json!("42"), modern, None),
@@ -235,6 +248,20 @@ async fn modern_routing_checks_reject_before_adapter_preparation() {
         Some(2),
     )
     .await;
+    let mut malformed_capabilities = call.clone();
+    malformed_capabilities["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] =
+        json!("invalid");
+    assert_error(
+        send(
+            server.address,
+            post(server.address, &malformed_capabilities, true, None),
+        )
+        .await,
+        400,
+        -32602,
+        Some(2),
+    )
+    .await;
     let unknown = rpc(3, "fixture/unknown", json!({}), true);
     assert_error(
         send(server.address, post(server.address, &unknown, true, None)).await,
@@ -280,6 +307,15 @@ async fn modern_routing_checks_reject_before_adapter_preparation() {
         request.headers_mut().insert(key, value.parse().unwrap());
         assert_eq!(send(server.address, request).await.status(), status);
     }
+    let mut forwarded = post(server.address, &call, true, None);
+    let headers = forwarded.headers_mut();
+    headers.insert(header::HOST, "fixture.invalid".parse().unwrap());
+    headers.insert(
+        "x-forwarded-host",
+        server.address.to_string().parse().unwrap(),
+    );
+    headers.insert("x-forwarded-proto", "http".parse().unwrap());
+    assert_eq!(send(server.address, forwarded).await.status(), 403);
     for method in [Method::GET, Method::DELETE] {
         let reply = send(
             server.address,
@@ -342,6 +378,73 @@ async fn request_and_response_bytes_are_bounded() {
     assert!(oversized.event().await.is_none());
     assert_eq!(exchange(&server, &valid, true, None).await["id"], 2);
     server.stop().await;
+}
+
+#[test]
+fn diagnostic_sink_filters_sdk_payloads() {
+    let output = capture_diagnostics();
+    assert!(output.contains("fixture diagnostic sink ready"));
+    assert!(!output.contains("fixture-sdk-log-canary"));
+    assert!(!output.contains("rmcp::"));
+}
+
+fn capture_diagnostics() -> String {
+    use std::io::{self, Write};
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::prelude::*;
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().write(bytes)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let logs = LogBuffer::default();
+    let writer = logs.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .with_filter(tracing_subscriber::filter::filter_fn(
+                mcp_transport::sdk_diagnostic_filter,
+            ))
+            .with_filter(tracing_subscriber::EnvFilter::new(
+                "mcp_transport=trace,rmcp=trace",
+            )),
+    );
+    // A current-thread runtime keeps the subscriber local to this test while
+    // covering the tasks spawned by the HTTP listener and SDK.
+    tracing::subscriber::with_default(subscriber, || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                tracing::info!(target: "mcp_transport::http", "fixture diagnostic sink ready");
+                let server = Server::start(LoopbackProfile::DualRevision, None).await;
+                let session = start_legacy(&server).await.unwrap();
+                let item = "fixture-sdk-log-canary";
+                let result = exchange(
+                    &server,
+                    &tool(2, json!(item), false, Some(item)),
+                    false,
+                    Some(&session),
+                )
+                .await;
+                assert_eq!(result["result"]["structuredContent"]["id"], item);
+                server.stop().await;
+            });
+    });
+    String::from_utf8(logs.0.lock().unwrap().clone()).unwrap()
 }
 
 #[tokio::test]
@@ -418,6 +521,46 @@ async fn issued_legacy_sessions_require_ids_expire_delete_and_reinitialize() {
         json!({})
     );
     server.stop().await;
+    let restarted = Server::start(LoopbackProfile::DualRevision, None).await;
+    assert_eq!(
+        send(
+            restarted.address,
+            post(restarted.address, &legacy, false, Some(&third))
+        )
+        .await
+        .status(),
+        404
+    );
+    restarted.stop().await;
+}
+
+#[tokio::test]
+async fn legacy_session_capacity_preserves_modern_calls_and_recovers_after_delete() {
+    let server = Server::start(LoopbackProfile::DualRevision, None).await;
+    let mut sessions = std::collections::HashSet::new();
+    for _ in 0..128 {
+        assert!(sessions.insert(start_legacy(&server).await.unwrap()));
+    }
+    let mut refused = send(
+        server.address,
+        post(server.address, &initialize(), false, None),
+    )
+    .await;
+    assert_eq!(refused.status(), 503);
+    assert!(!refused.headers().contains_key(SESSION));
+    assert!(refused.bytes().await.is_empty());
+    let modern = tool("modern", json!("42"), true, None);
+    assert_eq!(
+        exchange(&server, &modern, true, None).await["result"]["structuredContent"]["id"],
+        "42"
+    );
+    let mut delete = request(server.address, Method::DELETE, Body::empty());
+    let headers = delete.headers_mut();
+    headers.insert(VERSION, LEGACY.parse().unwrap());
+    headers.insert(SESSION, sessions.iter().next().unwrap().parse().unwrap());
+    assert_eq!(send(server.address, delete).await.status(), 202);
+    assert!(sessions.insert(start_legacy(&server).await.unwrap()));
+    server.stop().await;
 }
 
 #[tokio::test]
@@ -431,17 +574,17 @@ async fn modern_disconnect_cancels_only_the_request_stream() {
         );
         assert_eq!(started, item);
         assert!(reply.is_sse());
-        if token.is_some() {
+        if let Some(token) = token {
             let progress = reply.event().await.unwrap();
             assert_eq!(progress["method"], "notifications/progress");
-            assert_eq!(progress["params"]["progressToken"], token.unwrap());
+            assert_eq!(progress["params"]["progressToken"], token);
         }
         let quick = tool("same-id", json!("42"), true, None);
         let sibling = exchange(&server, &quick, true, None).await;
         assert_eq!(sibling["result"]["structuredContent"]["id"], "42");
         assert!(server.active() > 0);
         drop(reply);
-        assert_eq!(server.ended().await, item);
+        assert_ended_promptly(&server, item).await;
     }
     server.stop().await;
 }
@@ -472,11 +615,11 @@ async fn legacy_disconnect_and_cancellation_differ_with_and_without_a_session() 
         assert_eq!(progress["params"]["progressToken"], "legacy-progress");
         drop(reply);
         if drop_cancels {
-            assert_eq!(server.ended().await, "wait-progress");
+            assert_ended_promptly(&server, "wait-progress").await;
         } else {
             assert!(server.stays_active().await);
             assert_cancel_accepted(&server, session.as_deref(), "slow").await;
-            assert_eq!(server.ended().await, "wait-progress");
+            assert_ended_promptly(&server, "wait-progress").await;
         }
 
         let mut reply = send(
@@ -496,10 +639,11 @@ async fn legacy_disconnect_and_cancellation_differ_with_and_without_a_session() 
             assert!(server.stays_active().await);
             let terminal = reply.terminal().await;
             assert_diagnostic(&terminal["result"]["_meta"], "runtime.timeout");
+            assert_eq!(server.ended().await, "wait-progress");
         } else {
+            assert_ended_promptly(&server, "wait-progress").await;
             assert!(reply.event().await.is_none());
         }
-        assert_eq!(server.ended().await, "wait-progress");
         let quick = tool("slow", json!("42"), false, None);
         assert_eq!(
             exchange(&server, &quick, false, session.as_deref()).await["result"]["structuredContent"]
@@ -508,6 +652,13 @@ async fn legacy_disconnect_and_cancellation_differ_with_and_without_a_session() 
         );
         server.stop().await;
     }
+}
+
+async fn assert_ended_promptly(server: &Server, item: &str) {
+    let ended = tokio::time::timeout(CANCELLATION_WAIT, server.ended())
+        .await
+        .expect("fixture work did not stop before its execution deadline");
+    assert_eq!(ended, item);
 }
 
 async fn start_legacy(server: &Server) -> Option<String> {

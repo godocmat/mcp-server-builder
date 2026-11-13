@@ -78,6 +78,7 @@ fn name_matches(value: &str, expected: &str) -> bool {
 }
 
 pub(super) fn accepts_responses(headers: &HeaderMap) -> bool {
+    // Match the SDK's explicit media-range policy before opening early SSE.
     let mut json = false;
     let mut sse = false;
     for value in headers.get_all(header::ACCEPT) {
@@ -264,6 +265,7 @@ pub(super) fn validate(
     {
         return Err(invalid_params());
     }
+    // Use the same parsed envelope for preflight and typed dispatch.
     let message =
         serde_json::from_value::<ClientJsonRpcMessage>(value).map_err(|_| invalid_params())?;
     let stream = match &message {

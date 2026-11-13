@@ -110,13 +110,15 @@ pub(super) fn post(
 
 pub(super) struct Reply {
     message: Response<Incoming>,
-    connection: JoinHandle<Result<(), hyper::Error>>,
+    _connection: Connection,
     events: Vec<u8>,
 }
 
-impl Drop for Reply {
+struct Connection(JoinHandle<Result<(), hyper::Error>>);
+
+impl Drop for Connection {
     fn drop(&mut self) {
-        self.connection.abort();
+        self.0.abort();
     }
 }
 
@@ -128,14 +130,14 @@ pub(super) async fn send(address: SocketAddr, request: Request<Body>) -> Reply {
     let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
         .await
         .unwrap();
-    let connection = tokio::spawn(connection);
+    let connection = Connection(tokio::spawn(connection));
     let message = tokio::time::timeout(WAIT, sender.send_request(request))
         .await
         .unwrap()
         .unwrap();
     Reply {
         message,
-        connection,
+        _connection: connection,
         events: Vec::new(),
     }
 }

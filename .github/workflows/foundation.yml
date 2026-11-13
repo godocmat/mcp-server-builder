@@ -132,6 +132,16 @@ jobs:
           cargo test --locked -p mcp-transport --no-default-features --features client-stdio
           cargo clippy --locked -p mcp-transport --no-default-features --features client-stdio --all-targets -- -D warnings
 
+      - name: Check MCP Streamable HTTP over loopback
+        env:
+          AWS_LC_SYS_PREBUILT_NASM: "1"
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo test --locked -p mcp-transport --no-default-features --features server-http
+          cargo clippy --locked -p mcp-transport --no-default-features --features server-http --all-targets -- -D warnings
+          cargo test --locked -p mcp-transport --no-default-features --features server-http,client-http-rustls --test http_wire http_client_auto
+          cargo clippy --locked -p mcp-transport --no-default-features --features server-http,client-http-rustls --test http_wire -- -D warnings
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:

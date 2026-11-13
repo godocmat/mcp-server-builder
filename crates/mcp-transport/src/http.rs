@@ -274,7 +274,11 @@ impl Endpoint {
             ))
         });
         let comment = stream::once(ready(Ok(Event::default().comment(""))));
-        let reply = Sse::new(comment.chain(messages)).into_response();
+        let mut reply = Sse::new(comment.chain(messages)).into_response();
+        reply.headers_mut().insert(
+            "x-accel-buffering",
+            axum::http::HeaderValue::from_static("no"),
+        );
         response::bounded(reply, routed.id).await
     }
 }
