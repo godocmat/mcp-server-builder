@@ -72,6 +72,7 @@ pub(super) struct PipeTransport<R> {
     frame: Vec<u8>,
     discarding: bool,
     startup: Option<RequestId>,
+    stale_probe: Option<RequestId>,
     pending: Arc<Mutex<HashMap<RequestId, Pending>>>,
     writes: mpsc::Sender<WriteItem>,
     trace: Arc<TraceBuffer>,
@@ -106,6 +107,7 @@ impl<R: AsyncRead> PipeTransport<R> {
                 frame: Vec::new(),
                 discarding: false,
                 startup: None,
+                stale_probe: None,
                 pending: Arc::new(Mutex::new(HashMap::new())),
                 writes,
                 trace,
@@ -162,7 +164,7 @@ impl<R: AsyncRead + Unpin + Send> Transport<RoleClient> for PipeTransport<R> {
                         self.connection,
                         TraceDirection::Received,
                         TraceKind::FrameLimit,
-                        TracePayload::None,
+                        TracePayload::Omitted,
                     );
                 }
                 Ok(Frame::Complete) => {
@@ -242,6 +244,9 @@ impl<R: AsyncRead + Unpin> PipeTransport<R> {
                     };
                     if let Some(previous) = self.startup.replace(request.id.clone()) {
                         self.pending.lock().unwrap().remove(&previous);
+                        // A timed-out discovery probe can reply while the SDK
+                        // waits for the legacy initialize result.
+                        self.stale_probe = Some(previous);
                     }
                 }
                 context.message_id = numeric_id(&request.id);
@@ -329,7 +334,11 @@ impl<R: AsyncRead + Unpin> PipeTransport<R> {
         // rmcp startup already accepts numeric-string IDs. Normalize them at
         // the boundary so correlated steady-state replies use the same rule.
         *id = NumberOrString::Number(id_number);
-        let request = self.pending.lock().unwrap().remove(id)?;
+        let request = self.pending.lock().unwrap().remove(id);
+        let Some(request) = request else {
+            return (self.startup.is_some() && self.stale_probe.as_ref() != Some(id))
+                .then_some(message);
+        };
         if request
             .retired
             .as_ref()

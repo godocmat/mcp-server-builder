@@ -1,6 +1,8 @@
 //! Approved local MCP stdio clients over supervisor-owned process pipes.
 
 mod diagnostic;
+#[cfg(test)]
+mod tests;
 mod wire;
 
 use std::sync::Arc;
@@ -43,6 +45,7 @@ pub use diagnostic::ClientError;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 const STDIN_CLOSE_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DISCOVERY_BYTES: usize = 16 * MAX_FRAME_BYTES;
+const MAX_LIST_PAGES: usize = 512;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ProtocolPreference {
@@ -76,7 +79,7 @@ impl ProtocolRevision {
 pub struct ClientOptions {
     pub protocol: ProtocolPreference,
     pub capture_payloads: bool,
-    /// Enable only for an authenticated builder-owned launch.
+    /// Enable for a verified builder-owned process.
     pub trust_builder_diagnostics: bool,
     pub redactor: Arc<Redactor>,
 }
@@ -286,7 +289,7 @@ impl StdioClient {
                 }
             };
             let mut cursor = None;
-            loop {
+            for page_number in 1..=MAX_LIST_PAGES {
                 let request = list.request(cursor.clone());
                 let (response, context) = self
                     .request(
@@ -297,12 +300,19 @@ impl StdioClient {
                         TracePayload::None,
                     )
                     .await?;
-                let normalized = list.page(response).map_err(error);
-                let (value, next) = normalized?;
+                let (value, next) = match list.page(response) {
+                    Ok(page) => page,
+                    Err(failure) => {
+                        self.trace_result(context, None, &options);
+                        return Err(error(failure));
+                    }
+                };
                 let size = serialized_len(&value, remaining_bytes)
                     .ok_or_else(|| error(Failure::DiscoveryLimit))?;
-                remaining_bytes -= size;
-                let value = self.sanitize_catalog(value, &options, size)?;
+                let value = self.sanitize_catalog(value, &options, remaining_bytes)?;
+                let published_size = serialized_len(&value, remaining_bytes)
+                    .ok_or_else(|| error(Failure::DiscoveryLimit))?;
+                remaining_bytes -= size.max(published_size);
                 self.trace_result(context, Some(&value), &options);
                 if let Value::Array(page) = value {
                     items.extend(page);
@@ -312,6 +322,9 @@ impl StdioClient {
                 }
                 if cursor == next {
                     return Err(error(Failure::InvalidMessage));
+                }
+                if page_number == MAX_LIST_PAGES {
+                    return Err(error(Failure::DiscoveryLimit));
                 }
                 cursor = next;
             }
@@ -328,6 +341,10 @@ impl StdioClient {
     ) -> Result<Value, ClientError> {
         let deadline = operation_deadline(&options);
         self.check_open(&options, deadline)?;
+        let error = |failure| ClientError::new(options.correlation_id, failure);
+        if serialized_len(call, MAX_FRAME_BYTES - 1).is_none() {
+            return Err(error(Failure::FrameLimit));
+        }
         let (request, method, supported) = match call {
             Invocation::Tool { name, arguments } => (
                 CallToolRequest::new(
@@ -356,7 +373,6 @@ impl StdioClient {
                 self.capabilities.prompts,
             ),
         };
-        let error = |failure| ClientError::new(options.correlation_id, failure);
         if !supported {
             return Err(error(Failure::UnsupportedCapability));
         }
@@ -446,6 +462,7 @@ impl StdioClient {
             .map_err(|_| error(Failure::Busy))?;
         let mut context = TraceContext::new(options.correlation_id, Some(method));
         let retired = CancellationToken::new();
+        let _retire_on_drop = retired.clone().drop_guard();
         request.extensions_mut().insert(OutboundTrace {
             context,
             payload,
@@ -472,9 +489,9 @@ impl StdioClient {
         let response = tokio::select! {
             biased;
             _ = options.cancellation.cancelled() => Err((Failure::Cancelled, TraceKind::Cancelled)),
-            _ = self.closing.cancelled() => Err((Failure::Disconnected, TraceKind::Error)),
             _ = sleep_until(deadline) => Err((Failure::Timeout, TraceKind::TimedOut)),
             response = &mut pending.handle.as_mut().expect("active MCP request").rx => Ok(response),
+            _ = self.closing.cancelled() => Err((Failure::Disconnected, TraceKind::Error)),
         };
         match response {
             Ok(response) => {
@@ -496,6 +513,7 @@ impl StdioClient {
                 }
             }
             Err((failure, kind)) => {
+                pending.retired.cancel();
                 self.trace
                     .record(context, TraceDirection::Received, kind, TracePayload::None);
                 Err(error(failure))
@@ -548,11 +566,10 @@ impl StdioClient {
         &self,
         value: Value,
         options: &RequestOptions,
-        frame_bytes: usize,
+        remaining_bytes: usize,
     ) -> Result<Value, ClientError> {
-        let sanitize = |value, redactor: &Redactor| {
-            redactor.redact_json(value, frame_bytes.max(MAX_FRAME_BYTES))
-        };
+        let limit = remaining_bytes.min(MAX_FRAME_BYTES);
+        let sanitize = |value, redactor: &Redactor| redactor.redact_json(value, limit);
         let value = sanitize(value, &self.redactor).and_then(|value| match &options.redactor {
             Some(redactor) => sanitize(value, redactor),
             None => Ok(value),
@@ -716,7 +733,13 @@ impl List {
             _ => return Err(Failure::InvalidMessage),
         };
         let mut value = value.map_err(|_| Failure::InvalidMessage)?;
-        strip_protocol_metadata(&mut value);
+        if let Some(items) = value.as_array_mut() {
+            for item in items {
+                if let Some(fields) = item.as_object_mut() {
+                    fields.remove("_meta");
+                }
+            }
+        }
         Ok((value, cursor))
     }
 }

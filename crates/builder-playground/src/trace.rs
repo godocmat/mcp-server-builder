@@ -151,12 +151,12 @@ impl TraceBuffer {
             payload: None,
             truncated: false,
         };
-        if self.capture_payloads && !state.closed {
-            match payload {
-                TracePayload::Sanitized(payload) => entry.payload = Some(payload),
-                TracePayload::Omitted => entry.truncated = true,
-                TracePayload::None => {}
+        match payload {
+            TracePayload::Sanitized(payload) if self.capture_payloads && !state.closed => {
+                entry.payload = Some(payload)
             }
+            TracePayload::Omitted => entry.truncated = true,
+            _ => {}
         }
         let mut bytes = entry_size(&entry);
         if bytes > MAX_ENTRY_BYTES {
@@ -223,4 +223,66 @@ fn entry_size(entry: &TraceEntry) -> usize {
         .expect("trace entries serialize")
         .len()
         + 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounds_entries_and_bytes_and_discards_payloads_on_close() {
+        let context = TraceContext::new(Uuid::new_v4(), Some("tools/call"));
+        let metadata = TraceBuffer::new(false);
+        for _ in 0..MAX_ENTRIES + 10 {
+            metadata.record(
+                context,
+                TraceDirection::Sent,
+                TraceKind::Request,
+                TracePayload::Sanitized(Value::String("unused".into())),
+            );
+        }
+        let snapshot = metadata.snapshot();
+        assert_eq!(snapshot.entries.len(), MAX_ENTRIES);
+        assert_eq!(snapshot.summary.dropped_entries, 10);
+        assert_eq!(snapshot.entries[0].sequence, 11);
+        assert!(snapshot.entries.iter().all(|entry| entry.payload.is_none()));
+
+        let payloads = TraceBuffer::new(true);
+        let large = TracePayload::Sanitized(Value::String("x".repeat(MAX_ENTRY_BYTES / 2)));
+        for _ in 0..MAX_ENTRIES {
+            payloads.record(
+                context,
+                TraceDirection::Sent,
+                TraceKind::Request,
+                large.clone(),
+            );
+        }
+        payloads.record(
+            context,
+            TraceDirection::Received,
+            TraceKind::Response,
+            TracePayload::Sanitized(Value::String("x".repeat(MAX_ENTRY_BYTES))),
+        );
+        let snapshot = payloads.snapshot();
+        assert!(snapshot.entries.len() < MAX_ENTRIES);
+        assert!(snapshot.summary.truncated);
+        assert!(snapshot.entries.iter().map(entry_size).sum::<usize>() <= MAX_TRACE_BYTES);
+        assert!(
+            snapshot
+                .entries
+                .iter()
+                .all(|entry| entry_size(entry) <= MAX_ENTRY_BYTES)
+        );
+        assert!(snapshot.entries.last().unwrap().truncated);
+
+        payloads.close_payloads();
+        payloads.record(context, TraceDirection::Sent, TraceKind::Request, large);
+        assert!(
+            payloads
+                .snapshot()
+                .entries
+                .iter()
+                .all(|entry| entry.payload.is_none())
+        );
+    }
 }
