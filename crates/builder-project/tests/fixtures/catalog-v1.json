@@ -1,0 +1,124 @@
+{
+  "format": "mcp-server-builder.project",
+  "schemaVersion": 1,
+  "projectId": "8d1ea3a7-18c4-4e36-8a8c-6e84af79eed0",
+  "name": "Catalog sample",
+  "server": {"name": "catalog", "version": "0.1.0", "instructions": "Review a catalog item."},
+  "transport": "stdio",
+  "capabilities": [
+    {
+      "id": "lookup_item",
+      "kind": "tool",
+      "name": "lookup_item",
+      "description": "Find a catalog item",
+      "inputSchema": {
+        "type": "object",
+        "properties": {"id": {"$ref": "#/$defs/itemId"}},
+        "required": ["id"],
+        "additionalProperties": false,
+        "$defs": {"itemId": {"type": "string"}}
+      },
+      "outputSchema": {"type": "object"},
+      "bindingId": "catalog_lookup",
+      "timeoutMs": 2000
+    },
+    {
+      "id": "catalog_guide",
+      "kind": "resource",
+      "name": "Catalog guide",
+      "description": "Read the catalog guide",
+      "uri": "catalog://docs/guide",
+      "mimeType": "text/plain",
+      "bindingId": "guide_file"
+    },
+    {
+      "id": "catalog_note",
+      "kind": "resourceTemplate",
+      "name": "Catalog note",
+      "description": "Read a per-item note",
+      "uriTemplate": "catalog://docs/items/{id}",
+      "variables": {"id": {"type": "string", "pattern": "^[0-9]+$"}},
+      "mimeType": "text/plain",
+      "bindingId": "note_file"
+    },
+    {
+      "id": "review_item",
+      "kind": "prompt",
+      "name": "review_item",
+      "description": "Review an item",
+      "arguments": [{"name": "id", "required": true}],
+      "messages": [{"role": "user", "textTemplate": "Review catalog item {id}."}]
+    }
+  ],
+  "bindings": [
+    {
+      "id": "catalog_lookup",
+      "kind": "rest",
+      "origin": "https://catalog.example.test",
+      "method": "GET",
+      "pathTemplate": "/items/{id}",
+      "pathParams": {"id": "/id"},
+      "headersFromSecrets": {"Authorization": "catalog_auth"}
+    },
+    {"id": "guide_file", "kind": "fileRead", "rootRef": "catalog_docs", "relativePathTemplate": "guide.txt"},
+    {"id": "note_file", "kind": "fileRead", "rootRef": "catalog_docs", "relativePathTemplate": "notes/{id}.txt"}
+  ],
+  "policy": {
+    "grants": [
+      {
+        "id": "catalog_read",
+        "capabilityId": "lookup_item",
+        "operation": "http.read",
+        "target": {"kind": "rest", "origin": "https://catalog.example.test", "method": "GET", "pathTemplate": "/items/{id}"},
+        "limits": {"timeoutMs": 1000, "maxOutputBytes": 16384}
+      },
+      {
+        "id": "note_read",
+        "capabilityId": "catalog_note",
+        "operation": "file.read",
+        "target": {"kind": "fileRead", "rootRef": "catalog_docs", "relativePathTemplate": "notes/42.txt"}
+      }
+    ]
+  },
+  "secretRefs": [{"id": "catalog_auth", "purpose": "Authorize catalog requests"}],
+  "scenarios": [
+    {
+      "version": 1,
+      "id": "known_item",
+      "name": "Known catalog item",
+      "mode": "fixture",
+      "call": {"method": "tools/call", "name": "lookup_item", "arguments": {"id": "42"}},
+      "fixtures": [
+        {"kind": "rest", "bindingId": "catalog_lookup", "method": "GET", "path": "/items/42", "status": 200,
+          "body": {"id": "42", "name": "Sample item"}}
+      ],
+      "assertions": [{"kind": "equals", "path": "/structuredContent/name", "expected": "Sample item"}],
+      "sensitivePaths": ["/structuredContent/private"]
+    },
+    {
+      "version": 1,
+      "id": "invalid_item",
+      "name": "Invalid catalog argument",
+      "mode": "fixture",
+      "call": {"method": "tools/call", "name": "lookup_item", "arguments": {"id": 42}},
+      "assertions": [{"kind": "errorCode", "code": "input.invalid"}]
+    },
+    {
+      "version": 1,
+      "id": "note",
+      "name": "Read a note",
+      "mode": "fixture",
+      "call": {"method": "resources/read", "uri": "catalog://docs/items/42"},
+      "fixtures": [{"kind": "fileRead", "bindingId": "note_file", "relativePath": "notes/42.txt", "text": "Sample note"}],
+      "assertions": [{"kind": "schema", "path": "/contents", "schema": {"type": "array"}}]
+    },
+    {
+      "version": 1,
+      "id": "review",
+      "name": "Render the review prompt",
+      "mode": "fixture",
+      "call": {"method": "prompts/get", "name": "review_item", "arguments": {"id": "42"}},
+      "assertions": [{"kind": "schema", "path": "/messages", "schema": {"type": "array"}}]
+    }
+  ]
+}

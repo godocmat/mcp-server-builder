@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-13 November 2026 · F2 and M2 integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+13 November 2026 · F2, M1 and M2 integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -77,9 +77,15 @@ The Windows policy suite passed 15 tests, including synthetic-secret scans for s
 
 ## F2 and M2 integration
 
-This baseline combines F2 `d643794` and M2 `b80e47c`. The combined Cargo lock retains F2's WebDriver dependencies and adds M2's dependency edges. The first GitHub Actions run still requires a GitHub remote. M1's project services and their shared policy integration are the remaining prerequisites for M3. [Hosted verification](docs/ci.md#first-hosted-run) · [MCP runtime dependencies](TASKS.md#local-mvp)
+The integration combines F2 `d643794` and M2 `b80e47c`. The combined Cargo lock retains F2's WebDriver dependencies and adds M2's dependency edges. The first GitHub Actions run requires a GitHub remote. [Hosted verification](docs/ci.md#first-hosted-run)
 
 On Windows, the integrated checkout passed Rust formatting, both locked workspace builds, all 17 workspace tests with embedded Angular assets and workspace Clippy with warnings denied. The CLI passed help, version, text and versioned JSON checks. On the primary Node and npm pair, Angular passed the locked install, formatting, production build, TypeScript, two IPC component tests and coverage collection. Actionlint passed and both lockfiles stayed intact.
+
+## M1 local project model
+
+Branch `codex/m1-local-project-model` started from F1 integration `139f0920d4e0ddff2244cbf4fab5fd32e7dd8ff0`. It implements the schema 1 project document, offline validation, exact-byte revisions, native staged saves, explicit recovery and the per-user SQLx catalog. The Windows fixtures cover concurrent saves, interrupted replacement, backup restore and catalog repair. [M1 commands, evidence and integration handoff](docs/local-project-model.md)
+
+The M1 integration merges `15cdddb` and uses the M2 requested policy type directly in `ProjectDocument`. Manifest validation keeps the schema 1 target kinds, binding references, path narrowing and limit bounds. The catalog fixture uses the shared evaluator for approved REST and file operations and verifies denial outside the approved file path. M3 can use the typed document, policy and offline schema compiler. [MCP runtime dependencies](TASKS.md#local-mvp)
 
 ## Verification carried forward
 

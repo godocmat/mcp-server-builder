@@ -90,7 +90,7 @@ On the primary Node and npm pair, `npm run tauri -- dev --no-watch -- --locked` 
 CLI and Tauri desktop → builder-app
 builder-app → builder-project, builder-generator, builder-playground
 builder-generator → builder-project
-builder-project → mcp-runtime
+builder-project → mcp-runtime, mcp-policy
 builder-playground → mcp-runtime, mcp-transport
 mcp-transport → mcp-runtime, optional rmcp
 mcp-runtime → mcp-policy
