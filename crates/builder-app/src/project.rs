@@ -165,6 +165,38 @@ impl ProjectService {
         operation.finish(result)
     }
 
+    /// Prepare an inert managed preview from the current saved project.
+    pub async fn prepare_playground(
+        &self,
+        location: ProjectLocation,
+        worker: PathBuf,
+        mode: crate::playground::PreviewMode,
+        access: crate::playground::PreviewAccess,
+    ) -> Reply<crate::playground::PreparedProjectPreview> {
+        use crate::playground::{PreparedProjectPreview, PreviewRequest, prepare_preview};
+        let operation = Operation::new();
+        let result = async {
+            let location = self.resolve(location).await?;
+            on_disk(move || {
+                let root = project_files::canonical_root(&location.root)?;
+                let manifest = read_valid(&root, location.project_id())?;
+                location.check_identity(&root, &manifest)?;
+                let prepared = prepare_preview(PreviewRequest {
+                    worker,
+                    registration_id: registration_id(&root, manifest.document().project_id),
+                    manifest,
+                    mode,
+                    access,
+                })
+                .map_err(Failure::playground)?;
+                Ok(PreparedProjectPreview::new(prepared, root))
+            })
+            .await
+        }
+        .await;
+        operation.finish(result)
+    }
+
     pub async fn create(&self, destination: PathBuf, name: String) -> Reply<ProjectSnapshot> {
         self.mutate(Mutation::Create {
             destination,

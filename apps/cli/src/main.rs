@@ -8,8 +8,12 @@ use builder_app::{
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{
+    EnvFilter, Layer, filter::filter_fn, layer::SubscriberExt, util::SubscriberInitExt,
+};
 use uuid::Uuid;
+
+mod playground;
 
 #[derive(Parser)]
 #[command(version, about = "MCP Server Builder")]
@@ -44,6 +48,11 @@ enum Command {
         /// Show the generation plan and conflicts before writing files.
         #[arg(long)]
         preview: bool,
+    },
+    /// Review and replay a saved scenario in a managed stdio preview.
+    Playground {
+        #[command(subcommand)]
+        action: playground::Action,
     },
 }
 
@@ -152,9 +161,8 @@ fn generation_exit(reply: &Reply<GenerationResult>) -> ExitCode {
     }
 }
 
-fn run() -> io::Result<ExitCode> {
-    let args: Vec<_> = std::env::args_os().collect();
-    match Cli::try_parse_from(&args) {
+fn run(args: &[std::ffi::OsString]) -> io::Result<ExitCode> {
+    match Cli::try_parse_from(args) {
         Ok(Cli {
             json,
             command: Command::Smoke { contract_version },
@@ -187,6 +195,10 @@ fn run() -> io::Result<ExitCode> {
             write_reply("generate", &reply, json, write_generation)?;
             Ok(generation_exit(&reply))
         }
+        Ok(Cli {
+            json,
+            command: Command::Playground { action },
+        }) => playground::run(action, json),
         Err(error) if !error.use_stderr() => {
             error.print()?;
             Ok(ExitCode::SUCCESS)
@@ -217,13 +229,23 @@ fn run() -> io::Result<ExitCode> {
 }
 
 fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_writer(io::stderr)
-        .json()
+    let args: Vec<_> = std::env::args_os().collect();
+    if let [_, worker] = args.as_slice()
+        && worker == builder_app::playground::WORKER_ARG
+    {
+        return playground::worker();
+    }
+    tracing_subscriber::registry()
+        .with(EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(io::stderr)
+                .json()
+                .with_filter(filter_fn(builder_app::playground::sdk_diagnostic_filter)),
+        )
         .init();
 
-    match run() {
+    match run(&args) {
         Ok(code) => code,
         Err(_) => {
             let _ = writeln!(io::stderr().lock(), "Unable to write the command result.");

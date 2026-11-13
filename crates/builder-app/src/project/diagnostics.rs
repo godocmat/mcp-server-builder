@@ -69,6 +69,14 @@ pub(super) struct Failure {
 }
 
 impl Failure {
+    pub(super) fn playground(error: crate::playground::PreviewError) -> Self {
+        Self::new(Message::new(
+            DiagnosticCode::Playground(error.code()),
+            error.message(),
+            "Review the managed preview settings and try again.",
+        ))
+    }
+
     pub(super) fn internal() -> Self {
         Self::new(Message::new(
             DiagnosticCode::InternalError,

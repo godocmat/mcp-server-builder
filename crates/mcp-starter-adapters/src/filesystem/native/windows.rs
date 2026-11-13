@@ -31,11 +31,11 @@ use windows_sys::Win32::{
         FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_ATTRIBUTE_VIRTUAL,
         FILE_DEVICE_DISK, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FILE_TYPE_DISK, FileAttributeTagInfo,
-        GetFileInformationByHandleEx, GetFileType, GetFinalPathNameByHandleW,
-        GetVolumeInformationByHandleW, GetVolumeNameForVolumeMountPointW, SYNCHRONIZE,
-        VOLUME_NAME_GUID,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES,
+        FILE_READ_DATA, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FILE_TYPE_DISK,
+        FileAttributeTagInfo, FileIdInfo, GetFileInformationByHandleEx, GetFileType,
+        GetFinalPathNameByHandleW, GetVolumeInformationByHandleW,
+        GetVolumeNameForVolumeMountPointW, SYNCHRONIZE, VOLUME_NAME_GUID,
     },
     System::IO::IO_STATUS_BLOCK,
 };
@@ -87,6 +87,29 @@ impl Root {
             root = Self { directory, name };
         }
         Ok(root)
+    }
+
+    pub(super) fn identity(&self) -> io::Result<[u8; 24]> {
+        let mut info = FILE_ID_INFO::default();
+        // The pinned directory handle remains open and the buffer matches FileIdInfo.
+        if unsafe {
+            GetFileInformationByHandleEx(
+                self.directory.as_raw_handle(),
+                FileIdInfo,
+                (&mut info as *mut FILE_ID_INFO).cast(),
+                size_of::<FILE_ID_INFO>() as u32,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if info.FileId.Identifier == [0; 16] {
+            return Err(denied());
+        }
+        let mut identity = [0; 24];
+        identity[..8].copy_from_slice(&info.VolumeSerialNumber.to_le_bytes());
+        identity[8..].copy_from_slice(&info.FileId.Identifier);
+        Ok(identity)
     }
 
     pub(super) fn open_file(&self, relative: &str) -> io::Result<OpenedFile<'_>> {

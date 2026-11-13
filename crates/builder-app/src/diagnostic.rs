@@ -68,6 +68,8 @@ pub enum DiagnosticCode {
     StorageDurabilityUnconfirmed,
     #[serde(rename = "internal.error")]
     InternalError,
+    #[serde(untagged)]
+    Playground(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

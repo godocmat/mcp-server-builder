@@ -71,7 +71,7 @@ pub(super) async fn resolve<'a>(
     Ok(Credentials { headers, redactor })
 }
 
-fn secret_variants(value: &str) -> Vec<Zeroizing<String>> {
+pub(crate) fn secret_variants(value: &str) -> Vec<Zeroizing<String>> {
     // HTTP recipients can remove leading or trailing whitespace when parsing
     // a header. Include the value as parsed and the token of known auth schemes.
     let trimmed = value.trim();

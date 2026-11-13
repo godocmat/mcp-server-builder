@@ -30,6 +30,10 @@ mod platform {
             Err(io::ErrorKind::Unsupported.into())
         }
 
+        pub(super) fn identity(&self) -> io::Result<[u8; 24]> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+
         pub(super) fn open_file(&self, _relative: &str) -> io::Result<File> {
             Err(io::ErrorKind::Unsupported.into())
         }
@@ -41,6 +45,10 @@ pub(super) struct Root(platform::Root);
 impl Root {
     pub(super) fn open(path: &Path) -> io::Result<Self> {
         platform::Root::open(path).map(Self)
+    }
+
+    pub(super) fn identity(&self) -> io::Result<[u8; 24]> {
+        self.0.identity()
     }
 
     pub(super) fn open_file(&self, relative: &str) -> io::Result<impl io::Read + Send + '_> {

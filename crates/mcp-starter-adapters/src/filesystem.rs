@@ -3,7 +3,7 @@ mod native;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -46,7 +46,13 @@ pub(super) struct Files {
 }
 
 impl Files {
-    pub(super) fn new(roots: BTreeMap<String, PathBuf>) -> Result<Self, SetupError> {
+    pub(super) fn new(
+        roots: BTreeMap<String, PathBuf>,
+        identities: Option<&BTreeMap<String, [u8; 24]>>,
+    ) -> Result<Self, SetupError> {
+        if identities.is_some_and(|ids| ids.len() != roots.len()) {
+            return Err(SetupError::InvalidBinding);
+        }
         let roots = roots
             .into_iter()
             .map(|(reference, path)| {
@@ -55,6 +61,14 @@ impl Files {
                 }
                 let root =
                     native::Root::open(&path).map_err(|_| SetupError::FileRootUnavailable)?;
+                if let Some(identities) = identities {
+                    let current = root
+                        .identity()
+                        .map_err(|_| SetupError::FileRootUnavailable)?;
+                    if identities.get(&reference) != Some(&current) {
+                        return Err(SetupError::FileRootUnavailable);
+                    }
+                }
                 Ok((reference, Arc::new(root)))
             })
             .collect::<Result<_, _>>()?;
@@ -87,6 +101,12 @@ impl Files {
             path,
         }))
     }
+}
+
+pub(super) fn review_root(path: &Path) -> Result<[u8; 24], SetupError> {
+    native::Root::open(path)
+        .and_then(|root| root.identity())
+        .map_err(|_| SetupError::FileRootUnavailable)
 }
 
 struct FileCall<'a> {

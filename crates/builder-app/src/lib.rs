@@ -4,6 +4,7 @@ mod catalog;
 mod diagnostic;
 mod generation;
 mod local_fs;
+pub mod playground;
 mod project;
 mod project_files;
 mod reply;

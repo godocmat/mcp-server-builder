@@ -91,6 +91,25 @@ impl StarterAdapter {
         bindings: BTreeMap<String, StarterBinding>,
         local: LocalBindings,
     ) -> Result<Self, SetupError> {
+        Self::new_with_roots(project_id, bindings, local, None)
+    }
+
+    /// Reopen the reviewed mappings and check the identity of each pinned root before use.
+    pub fn new_reviewed(
+        project_id: Uuid,
+        bindings: BTreeMap<String, StarterBinding>,
+        local: LocalBindings,
+        file_root_identities: &BTreeMap<String, [u8; 24]>,
+    ) -> Result<Self, SetupError> {
+        Self::new_with_roots(project_id, bindings, local, Some(file_root_identities))
+    }
+
+    fn new_with_roots(
+        project_id: Uuid,
+        bindings: BTreeMap<String, StarterBinding>,
+        local: LocalBindings,
+        file_root_identities: Option<&BTreeMap<String, [u8; 24]>>,
+    ) -> Result<Self, SetupError> {
         let bindings = bindings
             .into_iter()
             .map(|(id, binding)| {
@@ -112,9 +131,19 @@ impl StarterAdapter {
             project_id,
             bindings,
             rest: rest::Client::new(local.private_cas, local.secrets)?,
-            files: filesystem::Files::new(local.file_roots)?,
+            files: filesystem::Files::new(local.file_roots, file_root_identities)?,
         })
     }
+}
+
+/// Resolve a directory's identity without reading entries or file contents.
+pub fn review_file_root(path: &std::path::Path) -> Result<[u8; 24], SetupError> {
+    filesystem::review_root(path)
+}
+
+/// Known encodings of a credential for sanitizing operator-facing evidence.
+pub fn credential_redaction_variants(value: &str) -> Vec<Zeroizing<String>> {
+    rest::secret_variants(value)
 }
 
 impl Adapter for StarterAdapter {

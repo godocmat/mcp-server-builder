@@ -6,5 +6,34 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+builder-project.workspace = true
+mcp-policy.workspace = true
 mcp-runtime.workspace = true
-mcp-transport.workspace = true
+mcp-starter-adapters.workspace = true
+mcp-transport = { workspace = true, features = ["server-stdio"] }
+percent-encoding = "=2.3.2"
+rmcp = { workspace = true, features = ["client"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "=0.11.1"
+time = { version = "=0.3.55", features = ["formatting"] }
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-util = "=0.7.20"
+tracing.workspace = true
+uuid.workspace = true
+zeroize = { version = "=1.9.1", features = ["serde"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"

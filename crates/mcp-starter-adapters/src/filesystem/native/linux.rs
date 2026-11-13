@@ -73,6 +73,14 @@ impl Root {
         })
     }
 
+    pub(super) fn identity(&self) -> io::Result<[u8; 24]> {
+        let metadata = self.directory.metadata()?;
+        let mut identity = [0; 24];
+        identity[..8].copy_from_slice(&metadata.dev().to_le_bytes());
+        identity[8..16].copy_from_slice(&metadata.ino().to_le_bytes());
+        Ok(identity)
+    }
+
     pub(super) fn open_file(&self, relative: &str) -> io::Result<OpenedFile<'_>> {
         // Check each actual parent directory. A casefolded directory may look up an alias
         // even when the returned dentry name happens to match the spelling in the request.

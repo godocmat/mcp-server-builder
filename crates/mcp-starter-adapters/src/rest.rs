@@ -1,5 +1,6 @@
 mod connection;
 mod credentials;
+pub(crate) use credentials::secret_variants;
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
