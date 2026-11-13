@@ -3,7 +3,7 @@ mod credentials;
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -158,6 +158,12 @@ impl Client {
     ) -> Result<Vec<SocketAddr>, AdapterError> {
         if let Some(ip) = origin.literal_ip() {
             return Ok(vec![SocketAddr::new(ip, origin.port())]);
+        }
+        if matches!(origin.host(), "localhost" | "localhost.") {
+            return Ok(vec![
+                SocketAddr::from((Ipv4Addr::LOCALHOST, origin.port())),
+                SocketAddr::from((Ipv6Addr::LOCALHOST, origin.port())),
+            ]);
         }
         #[cfg(test)]
         if let Some(resolve) = self.resolver {

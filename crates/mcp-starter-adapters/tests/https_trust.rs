@@ -39,6 +39,7 @@ const LEAF_KEY: &[u8] = include_bytes!("https_trust_fixtures/test-only-leaf-key.
 struct Secrets {
     origin: HttpOrigin,
     lookups: AtomicUsize,
+    failure: Option<SecretError>,
 }
 
 impl SecretResolver for Secrets {
@@ -57,6 +58,9 @@ impl SecretResolver for Secrets {
             assert_eq!(request.binding_id, "fetch_rest");
             assert_eq!(request.origin, &self.origin);
             assert_eq!(request.reference, REFERENCE);
+            if let Some(error) = self.failure {
+                return Err(error);
+            }
             Ok(Zeroizing::new(AUTHORIZATION.into()))
         })
     }
@@ -65,6 +69,7 @@ impl SecretResolver for Secrets {
 fn runtime(
     routes: &[(&str, &HttpOrigin)],
     trusted_origin: Option<&HttpOrigin>,
+    failure: Option<SecretError>,
 ) -> (Runtime, Arc<Secrets>) {
     let mut capabilities = Vec::new();
     let mut bindings = Vec::new();
@@ -117,6 +122,7 @@ fn runtime(
     let secrets = Arc::new(Secrets {
         origin: routes[0].1.clone(),
         lookups: AtomicUsize::new(0),
+        failure,
     });
     let adapter = StarterAdapter::new(
         manifest.document().project_id,
@@ -143,6 +149,7 @@ fn runtime(
 #[derive(Debug, Eq, PartialEq)]
 enum ServerOutcome {
     HttpRequest,
+    NoHttpRequest,
     TlsAlert(AlertDescription),
 }
 
@@ -227,8 +234,25 @@ impl HttpsFixture {
             stream.get_ref().1.alpn_protocol(),
             Some(b"http/1.1".as_slice())
         );
+        let mut first = [0; 1];
+        match stream.read(&mut first).await {
+            Ok(0) => return ServerOutcome::NoHttpRequest,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::UnexpectedEof
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                ) =>
+            {
+                return ServerOutcome::NoHttpRequest;
+            }
+            Err(error) => panic!("could not read fixture request: {error}"),
+            Ok(_) => {}
+        }
         let mut request = String::new();
-        let mut reader = BufReader::new((&mut stream).take(8192));
+        let input = std::io::Cursor::new(first).chain(&mut stream);
+        let mut reader = BufReader::new(input.take(8192));
         loop {
             let start = request.len();
             assert_ne!(
@@ -313,6 +337,7 @@ async fn rejected(leaf: &[u8], trust_ca: bool, alert: AlertDescription) {
     let (runtime, secrets) = runtime(
         &[(FETCH, &fixture.origin)],
         trust_ca.then_some(&fixture.origin),
+        None,
     );
     let (outcome, result) = fixture.call(&runtime, FETCH).await;
     assert_rejected(outcome, result.unwrap_err(), alert, &secrets);
@@ -321,7 +346,7 @@ async fn rejected(leaf: &[u8], trust_ca: bool, alert: AlertDescription) {
 #[tokio::test]
 async fn scoped_ca_authenticates_localhost_and_redacts_the_echoed_credential() {
     let fixture = HttpsFixture::bind(VALID_LEAF).await;
-    let (runtime, secrets) = runtime(&[(FETCH, &fixture.origin)], Some(&fixture.origin));
+    let (runtime, secrets) = runtime(&[(FETCH, &fixture.origin)], Some(&fixture.origin), None);
     let (outcome, result) = fixture.call(&runtime, FETCH).await;
     assert_success(outcome, result.unwrap(), &secrets);
 }
@@ -349,6 +374,7 @@ async fn scoped_ca_does_not_apply_to_a_different_approved_port() {
     let (runtime, secrets) = runtime(
         &[(FETCH, &trusted.origin), ("other", &other.origin)],
         Some(&trusted.origin),
+        None,
     );
     let (outcome, result) = other.call(&runtime, "other").await;
     assert_rejected(
@@ -359,4 +385,26 @@ async fn scoped_ca_does_not_apply_to_a_different_approved_port() {
     );
     let (outcome, result) = trusted.call(&runtime, FETCH).await;
     assert_success(outcome, result.unwrap(), &secrets);
+}
+
+#[tokio::test]
+async fn unavailable_credentials_after_tls_send_no_http_request() {
+    for (failure, expected) in [
+        (SecretError::Missing, ErrorKind::CredentialMissing),
+        (SecretError::Unavailable, ErrorKind::CredentialUnavailable),
+    ] {
+        let fixture = HttpsFixture::bind(VALID_LEAF).await;
+        let (runtime, secrets) = runtime(
+            &[(FETCH, &fixture.origin)],
+            Some(&fixture.origin),
+            Some(failure),
+        );
+        let (outcome, result) = fixture.call(&runtime, FETCH).await;
+        assert_eq!(outcome, ServerOutcome::NoHttpRequest);
+        assert_eq!(secrets.lookups.load(Ordering::Relaxed), 1);
+        let error = result.unwrap_err();
+        assert_eq!(error.kind, expected);
+        assert_eq!(error.effect, Effect::None);
+        assert!(!format!("{error:?} {error} {}", error.message()).contains(TOKEN));
+    }
 }

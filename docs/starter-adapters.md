@@ -9,7 +9,7 @@ M6 standalone generation and M7 managed preview can pass `builder_project::runti
 ## REST profile
 
 - The method, origin and path template come from the binding. Path inputs accept a nonempty string, number or boolean. The adapter encodes each input as a path segment, rejects ambiguous separators and traversal, and bounds the full path at 2 KiB. The optional body pointer selects a JSON value from the validated tool arguments.
-- Route admission precedes DNS. The adapter validates every distinct address in a bounded DNS answer before connecting directly to a numeric socket, then verifies its peer and rechecks policy. HTTPS authenticates the configured hostname or IP on that same socket before resolving any credential. Each hop uses one HTTP/1.1 connection with no proxy, cookie store, decompression or automatic retry.
+- Route admission precedes DNS. The adapter validates every distinct address in a bounded DNS answer before connecting directly to a numeric socket, then verifies its peer and rechecks policy. The exact `localhost` name resolves directly to both loopback families and requires both peer ranges. A numeric origin lets an operator grant one family. HTTPS authenticates the configured hostname or IP on that same socket before resolving any credential. Each hop uses one HTTP/1.1 connection with no proxy, cookie store, decompression or automatic retry.
 - Redirects require an exact operator-approved route and the same requested, approved and caller permissions as any other hop. The adapter follows at most four redirects for bodyless reads at the original origin and method. It rechecks the route before resolving each new hop. Redirects to a different origin, including a different port or scheme, are denied. Write requests have no retry or redirect replay. Their remote mutation outcome is unknown after send because a generic HTTP response cannot attest to commit.
 - Success returns redacted UTF-8 text or JSON. A JSON object is structured tool content. Error bodies, response headers and native error strings are excluded from results and diagnostics. The adapter uses the permit's cumulative body cap and the runtime bounds the serialized MCP result. Header fields are capped at 64 and the response header block at 16 KiB. HEAD and no-content status responses return an empty text result. Actual encoded bodies are rejected.
 - TLS uses Rustls with AWS-LC, the locked Mozilla CA bundle, and any reviewed extra CA for the exact configured origin. Chain, name and validity checks use the configured roots without network retrieval during verification. Public CA changes require updating the dependency and rebuilding. The adapter does not obtain online revocation data or inherit machine trust overrides. The MCP transport SDK has its separate TLS feature trials. [Mozilla root bundle](https://docs.rs/webpki-roots/1.0.11/webpki_roots/) · [CCADB data terms](https://www.ccadb.org/rootstores/usage#ccadb-data-usage-terms)
@@ -23,3 +23,21 @@ The host supplies a reviewed absolute path for each mapped `rootRef`. Setup pins
 - Windows uses local NTFS drive roots and exact stored names. It checks each handle for reparse or special attributes, refuses alternate streams and files with multiple links, and keeps handles without delete sharing through the read.
 - Linux requires `openat2` and genuine procfs on the local ext4, Btrfs, XFS or tmpfs profile. It selects the entry with a metadata-only handle under the pinned root, refuses symlinks and nested mounts, and reopens the same verified single-link regular file for data.
 - Other systems, including macOS, fail closed for a mapped file root. Native filesystem support claims follow the checks below. [Windows relative open](https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntcreatefile) · [Linux pathname lookup](https://docs.kernel.org/filesystems/path-lookup.html)
+
+## Verification
+
+Windows 11 Pro 25H2 x64 (build 26200.9974) and Rust 1.99.1 passed the locked starter adapter, non-desktop workspace and transport feature suites. The starter tests exercise live HTTP and HTTPS through validated manifests and the shared registry, including TLS name and expiry checks, unknown and wrong-port trust, credential absence and echo redaction, route denial before DNS, mixed peer answers, no redirected writes, bounded output and cancellation. The file tests cover approved resource reads and rejection of out-of-root paths, case and 8.3 aliases, reparse points, unsupported path forms, hard links and rename attempts on local NTFS.
+
+```powershell
+cargo fmt --all --check
+cargo test --locked -p mcp-starter-adapters
+cargo test --locked --workspace --exclude mcp-builder-desktop
+cargo clippy --locked --workspace --exclude mcp-builder-desktop --all-targets -- -D warnings
+cargo test --locked -p mcp-transport --no-default-features --features server-stdio,server-http,client-stdio,client-http-rustls
+cargo clippy --locked -p mcp-transport --no-default-features --features server-stdio,server-http,client-stdio,client-http-rustls --all-targets -- -D warnings
+node .github/ci/sdk-probes.mjs
+cargo build --locked -p mcp-builder
+node .github/ci/cli-smoke.mjs
+```
+
+The isolated Linux native-file harness passed on tmpfs in an offline x64 QEMU guest booting Linux 5.15.167.4-microsoft-standard-WSL2. The harness cross-checked GNU and ran as a static musl executable with procfs. Integrated Linux runtime, native ext4, Btrfs and XFS runs, macOS file support and a live public certificate chain remain unverified. M7 and V2 still own managed credential sources and persisted audit and trace evidence.
