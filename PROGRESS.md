@@ -117,13 +117,18 @@ M6 integrated on `master` at `360ea21`. `mcp-builder generate` previews or publi
 
 Windows passed the locked standalone build, 23 generated workspace tests, Clippy and Inspector CLI checks for both MCP revisions. The generator's 12 tests passed on each of Linux tmpfs and ext4 in an isolated guest. The foundation workflow now includes a generated build and test step for Windows and Linux. Linux standalone wire and hosted CI evidence remain pending. macOS publication is unsupported. Redistribution terms remain subject to ADR-006. [M6 verification](docs/standalone-generator.md#verification) · [ADR-006](DECISIONS.md#adr-006--standalone-generation-and-license-continuity)
 
+## M7 local playground
+
+M7 integrated on `master` at `1ed4b27`. The shared application service prepares a review, consumes its approval, and opens a supervised Windows stdio session for discovery, calls and saved scenario replay. The console worker receives the reviewed manifest and scoped access over private pipes. Windows checks the executable, working directory and operator and assigns the worker to a kill-on-close Job Object at creation. The CLI exposes fixture review and replay. The client supports both pinned MCP revisions and rejects the older legacy negotiation before using capabilities. [Local playground workflow](docs/local-playground.md)
+
+Windows 11 x64 passed 35 M7 tests within the headless workspace suite, including stale approval, changed file roots, canary redaction, a fixture pass and assertion failure, malformed-frame recovery and a live timeout followed by a healthy request on the same connection. The standalone export passed its locked build and 23 tests. Windows desktop compilation passed without launching the app. Native managed launch is currently Windows-only. M8 owns installed desktop and IPC verification, and M9 owns the full CLI workflow. [M7 verification](docs/local-playground.md#verification)
+
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
 | F2 · Foundation and platform | Record a hosted run on the three named workers, both coverage artifacts per worker, and the native trial outcome for each WebView. [F2 hosted handoff](docs/ci.md#first-hosted-run) |
-| M1/M2/M7–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries across managed and generated workflows, Windows Job Objects, secret canaries, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
-| M7 · MCP | Enforce the selected legacy revision in the playground client and test stop and connection cleanup on the approved launch path. [Client negotiation evidence](docs/stdio-sdk-probe.md#m3-client-auto-discovery) |
+| M8–M10 · Pilot owners | Verify the installed worker, launch boundaries and secret canaries through Tauri IPC and the scripted CLI. Record end-to-end recovery, Windows installer and accessibility smoke, benchmark and coverage evidence. [M7 handoff](docs/local-playground.md) |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |
 | V3/V4/V10 · OAuth and interoperability | Record actual provider, database and access-token settings, TLS and trust inputs, audience isolation, callback and refresh evidence, client registrations, and real client versions and wire outcomes. |
 | R1/R3 · Deployment and security | Verify DNS/TLS and renewal, both Linux deployment profiles, bounded drain, secret rotation, denial, coverage and clean restore after a failed rollout. |
