@@ -2,7 +2,7 @@
 
 13 November 2026 · Windows x64 · [MCP transport contract](contracts.md#mcp-transport-and-execution) · [M3 wire cases](mcp-compatibility.md#wire-tests-and-release-evidence)
 
-An independent Python client exchanged raw newline-delimited JSON-RPC with a disposable Rust subprocess. The fixture used `rmcp 3.9.0` with `server` and `transport-io`, Rust `1.99.1` and Tokio `1.54.1`. It used synthetic tools and no network or desktop app. The SDK remains the candidate for M3 and M4.
+An independent Python client exchanged raw newline-delimited JSON-RPC with a disposable Rust subprocess. The fixture used `rmcp 3.9.0` with `server` and `transport-io`, Rust `1.99.1` and Tokio `1.54.1`. It used synthetic tools and no network or desktop app. M4 records the pin decision with the HTTP results. [SDK selection](loopback-http.md#sdk-selection)
 
 | Case | Observed behavior |
 | --- | --- |
@@ -46,7 +46,7 @@ cargo build --locked -p mcp-transport --no-default-features --features server-st
 
 The Windows tests run the actual transport and schema 1 runtime in a subprocess and drive raw JSON-RPC through its pipes. Six scenarios cover both versions, discovery and direct calls, tools and their schemas, concrete and expanded resource reads, prompts, policy-denial metadata, malformed and oversized frames, cancellation isolation, duplicate identifiers and progress tokens, a sibling timeout, and EOF with work in flight. They check stdout framing and scan stderr for a synthetic cancellation canary with SDK tracing requested. Three frame tests cover serialized output limits, queued and partially written frames during cancellation, and continued cancellation when request admission reaches its limit. [Wire harness](../crates/mcp-transport/tests/stdio_wire.rs) · [Frame tests](../crates/mcp-transport/src/stdio/frames/tests.rs)
 
-The server-side legacy fallback is exercised through an older offered version and the legacy initialization path. M4 owns HTTP and the SDK pin decision. [Compatibility matrix](mcp-compatibility.md#wire-tests-and-release-evidence)
+The server-side legacy fallback is exercised through an older offered version and the legacy initialization path. [Compatibility matrix](mcp-compatibility.md#wire-tests-and-release-evidence)
 
 ## M3 client auto discovery
 

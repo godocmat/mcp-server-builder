@@ -61,6 +61,8 @@ M3 and M4 use independent fixtures for each revision and transport. Record the `
 
 M6/M7/M10 run the independent harness and pinned Inspector against the standalone Windows export and the engineering HTTP fixture. V3/V4 repeat relevant wire checks with real OAuth. R1 and R4 repeat HTTP header, auth, SSE cancellation and legacy cases through the selected ingress. Keep upstream fixtures instrumented to prove validation and authorization precede dispatch. [D1 wire tests](mcp-compatibility.md#wire-tests-and-release-evidence)
 
+M4 records the server and Auto client socket checks, the isolated SDK capability and result-shape test, and the sessionless comparison. [Loopback HTTP evidence](loopback-http.md)
+
 | V10/R4 client candidate | Required run before claiming the combination |
 | --- | --- |
 | Claude Code 2.1.322 | Load generated `.mcp.json` stdio and HTTP entries. Run default, v2 `auto` and forced legacy profiles, capture the runtime and actual first exchange, then exercise tool calls, resource and prompt surfaces and `/mcp` sign-in and refresh. |
