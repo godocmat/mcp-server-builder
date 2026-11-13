@@ -457,13 +457,16 @@ async fn issued_legacy_sessions_require_ids_expire_delete_and_reinitialize() {
     )
     .await;
     let legacy = rpc(5, "ping", json!({}), false);
-    assert_error(
-        send(server.address, post(server.address, &legacy, false, None)).await,
-        400,
-        -32600,
-        Some(5),
-    )
-    .await;
+    let unknown = rpc(6, "fixture/unknown", json!({}), false);
+    for (message, id) in [(&legacy, 5), (&unknown, 6)] {
+        assert_error(
+            send(server.address, post(server.address, message, false, None)).await,
+            400,
+            -32600,
+            Some(id),
+        )
+        .await;
+    }
     let first = start_legacy(&server).await.unwrap();
     let mut wrong_version = post(server.address, &legacy, false, Some(&first));
     wrong_version
@@ -477,6 +480,17 @@ async fn issued_legacy_sessions_require_ids_expire_delete_and_reinitialize() {
         exchange(&server, &legacy, false, Some(&first)).await["result"],
         json!({})
     );
+    assert_error(
+        send(
+            server.address,
+            post(server.address, &unknown, false, Some(&first)),
+        )
+        .await,
+        200,
+        -32601,
+        Some(6),
+    )
+    .await;
 
     let mut get = request(server.address, Method::GET, Body::empty());
     get.headers_mut().insert(VERSION, LEGACY.parse().unwrap());
@@ -485,15 +499,17 @@ async fn issued_legacy_sessions_require_ids_expire_delete_and_reinitialize() {
         .insert("last-event-id", "old-event".parse().unwrap());
     assert_eq!(send(server.address, get).await.status(), 405);
     tokio::time::sleep(Duration::from_millis(550)).await;
-    assert_eq!(
-        send(
-            server.address,
-            post(server.address, &legacy, false, Some(&first))
-        )
-        .await
-        .status(),
-        404
-    );
+    for message in [&legacy, &unknown] {
+        assert_eq!(
+            send(
+                server.address,
+                post(server.address, message, false, Some(&first)),
+            )
+            .await
+            .status(),
+            404
+        );
+    }
 
     let second = start_legacy(&server).await.unwrap();
     assert_ne!(first, second);
@@ -507,15 +523,17 @@ async fn issued_legacy_sessions_require_ids_expire_delete_and_reinitialize() {
     let mut reply = send(server.address, delete).await;
     assert_eq!(reply.status(), 202);
     assert!(reply.bytes().await.is_empty());
-    assert_eq!(
-        send(
-            server.address,
-            post(server.address, &legacy, false, Some(&second))
-        )
-        .await
-        .status(),
-        404
-    );
+    for message in [&legacy, &unknown] {
+        assert_eq!(
+            send(
+                server.address,
+                post(server.address, message, false, Some(&second)),
+            )
+            .await
+            .status(),
+            404
+        );
+    }
     let third = start_legacy(&server).await.unwrap();
     assert_ne!(second, third);
     assert_eq!(
@@ -524,15 +542,17 @@ async fn issued_legacy_sessions_require_ids_expire_delete_and_reinitialize() {
     );
     server.stop().await;
     let restarted = Server::start(LoopbackProfile::DualRevision, None).await;
-    assert_eq!(
-        send(
-            restarted.address,
-            post(restarted.address, &legacy, false, Some(&third))
-        )
-        .await
-        .status(),
-        404
-    );
+    for message in [&legacy, &unknown] {
+        assert_eq!(
+            send(
+                restarted.address,
+                post(restarted.address, message, false, Some(&third)),
+            )
+            .await
+            .status(),
+            404
+        );
+    }
     restarted.stop().await;
 }
 
@@ -601,6 +621,18 @@ async fn legacy_disconnect_and_cancellation_differ_with_and_without_a_session() 
         let server = Server::start(profile, None).await;
         let session = start_legacy(&server).await;
         assert_eq!(session.is_none(), drop_cancels);
+        let unknown = rpc(2, "fixture/unknown", json!({}), false);
+        assert_error(
+            send(
+                server.address,
+                post(server.address, &unknown, false, session.as_deref()),
+            )
+            .await,
+            200,
+            -32601,
+            Some(2),
+        )
+        .await;
         let call = tool(
             "slow",
             json!("wait-progress"),

@@ -219,7 +219,17 @@ impl Endpoint {
         };
         let routed = match request::validate(&parts.headers, &bytes, self.profile) {
             Ok(routed) => routed,
-            Err(error) => return error.into_response(),
+            Err(error) => {
+                // Method rejection bypasses the SDK's normal session lookup.
+                if let Some(id) = &error.required_session {
+                    match self.sessions.has_session(id).await {
+                        Ok(true) => {}
+                        Ok(false) => return response::plain(StatusCode::NOT_FOUND),
+                        Err(_) => return response::plain(StatusCode::INTERNAL_SERVER_ERROR),
+                    }
+                }
+                return error.into_response();
+            }
         };
         if routed.stream == Stream::Modern {
             return self.stream_modern(routed).await;

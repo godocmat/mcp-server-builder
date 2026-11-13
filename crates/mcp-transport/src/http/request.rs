@@ -3,6 +3,7 @@ use axum::response::Response;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use rmcp::model::{ClientJsonRpcMessage, ClientNotification, ClientRequest, ErrorCode, GetMeta};
 use rmcp::transport::common::http_header::{BASE64_HEADER_PREFIX, BASE64_HEADER_SUFFIX};
+use rmcp::transport::streamable_http_server::SessionId;
 use serde_json::Value;
 
 use crate::handler::{LEGACY, MODERN, SUPPORTED};
@@ -32,6 +33,7 @@ pub(super) enum Stream {
 
 #[derive(Debug)]
 pub(super) struct Rejection {
+    pub required_session: Option<SessionId>,
     status: StatusCode,
     id: Option<Value>,
     code: ErrorCode,
@@ -149,6 +151,7 @@ pub(super) fn validate(
     profile: LoopbackProfile,
 ) -> Result<Routed, Rejection> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| Rejection {
+        required_session: None,
         status: StatusCode::BAD_REQUEST,
         id: None,
         code: ErrorCode::PARSE_ERROR,
@@ -158,6 +161,7 @@ pub(super) fn validate(
     })?;
     let id = value.get("id").filter(|id| valid_id(id)).cloned();
     let reject = |status, code, message| Rejection {
+        required_session: None,
         status,
         id: id.clone(),
         code,
@@ -252,13 +256,16 @@ pub(super) fn validate(
         return Err(mismatch());
     }
 
-    if !modern && profile.issues_sessions() {
+    let legacy_session = if !modern && profile.issues_sessions() {
         let session = one_header(headers, SESSION_HEADER).map_err(|()| invalid())?;
         if initialize && session.is_some() || !initialize && !session.is_some_and(valid_session_id)
         {
             return Err(invalid());
         }
-    }
+        session
+    } else {
+        None
+    };
 
     if method == "notifications/cancelled"
         && !value.pointer("/params/requestId").is_some_and(valid_id)
@@ -272,15 +279,18 @@ pub(super) fn validate(
         ClientJsonRpcMessage::Request(request) => {
             let method = request.request.method();
             if !is_supported_method(method, modern) {
-                return Err(reject(
-                    if modern {
-                        StatusCode::NOT_FOUND
-                    } else {
-                        StatusCode::OK
-                    },
-                    ErrorCode::METHOD_NOT_FOUND,
-                    "Unknown MCP method.",
-                ));
+                return Err(Rejection {
+                    required_session: legacy_session.map(Into::into),
+                    ..reject(
+                        if modern {
+                            StatusCode::NOT_FOUND
+                        } else {
+                            StatusCode::OK
+                        },
+                        ErrorCode::METHOD_NOT_FOUND,
+                        "Unknown MCP method.",
+                    )
+                });
             }
             if matches!(request.request, ClientRequest::CustomRequest(_)) {
                 return Err(invalid_params());
