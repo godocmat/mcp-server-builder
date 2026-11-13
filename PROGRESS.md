@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-12 November 2026 · Phase 0 handoff and F1 foundation · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+13 November 2026 · F2 and M2 integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -67,7 +67,19 @@ The `codex/f2-build-test-ci` branch starts from the verified F1 integration `139
 
 Local Windows 11 x64 and Ubuntu 24.04 amd64 userspace passed the Rust, Angular, CLI and six locked SDK checks, including the shared Rust/TypeScript fixture. Native WebView2 and WebKitGTK both rendered the typed IPC reply and matched the Rust trace. Rust reported 44 of 127 authored lines and Angular reported 9 of 11. [Local results](docs/ci.md#observed-local-results)
 
-The first GitHub run supplies evidence for the named workers, including Apple silicon compilation and WKWebView. Reconcile the shared Cargo lock with any M1/M2 dependency changes and run the workflow on the integrated commit. M3/M4 add wire and Inspector evidence, and M8/M10 and R2/R4 add installed native evidence. [Hosted and integration handoff](docs/ci.md#first-hosted-run)
+The first GitHub run supplies evidence for the named workers, including Apple silicon compilation and WKWebView. M3/M4 add wire and Inspector evidence, and M8/M10 and R2/R4 add installed native evidence. [Hosted and integration handoff](docs/ci.md#first-hosted-run)
+
+## M2 local execution policy
+
+Branch `codex/m2-local-execution-policy` started from verified F1 integration `139f0920d4e0ddff2244cbf4fab5fd32e7dd8ff0`. The shared policy crate implements portable grant validation, caller visibility, operator and caller authorization, verified target matching, per-call ceilings and evidence redaction. M1 can use the grant types and field diagnostics. M3 can use the evaluator and limits for dispatch, discovery and cancellation. [M2 API, checks and handoff](docs/local-execution-policy.md)
+
+The Windows policy suite passed 15 tests, including synthetic-secret scans for structured evidence and buffered stderr. The non-desktop workspace passed 17 tests. Formatting and Clippy passed. `Cargo.lock` records the policy crate's dependencies using package versions already locked by F1.
+
+## F2 and M2 integration
+
+This baseline combines F2 `d643794` and M2 `b80e47c`. The combined Cargo lock retains F2's WebDriver dependencies and adds M2's dependency edges. The first GitHub Actions run still requires a GitHub remote. M1's project services and their shared policy integration are the remaining prerequisites for M3. [Hosted verification](docs/ci.md#first-hosted-run) · [MCP runtime dependencies](TASKS.md#local-mvp)
+
+On Windows, the integrated checkout passed Rust formatting, 17 locked workspace tests and Clippy with warnings denied for the non-desktop crates. The CLI passed help, version, text and versioned JSON checks. On the primary Node and npm pair, Angular passed the locked install, formatting, production build, TypeScript, two IPC component tests and coverage collection. Actionlint passed and both lockfiles stayed intact.
 
 ## Verification carried forward
 
