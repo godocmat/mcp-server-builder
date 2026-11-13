@@ -6,4 +6,18 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+fluent-uri = "=0.4.1"
+http = "=1.5.0"
+ipnet = "=2.12.2"
+jsonschema = { version = "=0.61.2", default-features = false }
 mcp-runtime.workspace = true
+mime = "=0.3.18"
+percent-encoding = "=2.3.2"
+semver = "=1.0.28"
+serde.workspace = true
+serde_json.workspace = true
+serde_path_to_error = "=0.1.20"
+sha2 = "=0.11.1"
+unicode-normalization = "=0.1.26"
+url = "=2.5.8"
+uuid.workspace = true

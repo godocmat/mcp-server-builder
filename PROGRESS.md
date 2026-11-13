@@ -72,3 +72,7 @@ The tested inputs use Rust `1.99.1`, Node `24.22.3` and npm `11.19.1` as the pri
 | V3/V4/V10 · OAuth and interoperability | Record actual provider, database and access-token settings, TLS and trust inputs, audience isolation, callback and refresh evidence, client registrations, and real client versions and wire outcomes. |
 | R1/R3 · Deployment and security | Verify DNS/TLS and renewal, both Linux deployment profiles, bounded drain, secret rotation, denial, coverage and clean restore after a failed rollout. |
 | R2/R4/R5 · Platform, QA and product | Verify native installers and final artifact identity and signing, benchmark and compatibility matrix, authorized redistribution terms and notices, clean install/upgrade and final documentation. Record withheld or unsupported combinations and publication evidence after an authorized release. |
+
+## M1 local project model
+
+Branch `codex/m1-local-project-model` starts from F1 integration `139f0920d4e0ddff2244cbf4fab5fd32e7dd8ff0`. It implements the schema 1 project document, offline validation, exact-byte revisions, native staged saves, explicit recovery and the per-user SQLx catalog. The Windows fixtures cover concurrent saves, interrupted replacement, backup restore and catalog repair. [M1 commands, evidence and integration handoff](docs/local-project-model.md)
