@@ -15,7 +15,20 @@ server-stdio = [
     "rmcp/server",
     "rmcp/transport-io",
 ]
-server-http = ["dep:rmcp", "rmcp/server", "rmcp/transport-streamable-http-server"]
+server-http = [
+    "dep:axum",
+    "dep:base64",
+    "dep:futures-util",
+    "dep:http-body-util",
+    "dep:rmcp",
+    "dep:serde_json",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:tracing",
+    "rmcp/server",
+    "rmcp/transport-streamable-http-server",
+    "tokio/net",
+]
 client-stdio = ["dep:rmcp", "rmcp/client", "rmcp/transport-child-process"]
 client-http-rustls = [
     "dep:rmcp",
@@ -33,6 +46,10 @@ client-http-native-tls = [
 ]
 
 [dependencies]
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"], optional = true }
+base64 = { version = "=0.23.1", optional = true }
+futures-util = { version = "=0.3.34", optional = true }
+http-body-util = { version = "=0.1.5", optional = true }
 mcp-runtime.workspace = true
 rmcp = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
@@ -41,6 +58,8 @@ tokio-util = { version = "=0.7.20", optional = true }
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
+hyper = { version = "=1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
 builder-project.workspace = true
 mcp-policy.workspace = true
 serde_json.workspace = true
@@ -56,3 +75,7 @@ required-features = ["server-stdio"]
 name = "stdio_client_auto"
 harness = false
 required-features = ["client-stdio"]
+
+[[test]]
+name = "http_wire"
+required-features = ["server-http"]

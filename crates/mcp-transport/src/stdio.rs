@@ -1,5 +1,4 @@
 mod frames;
-mod handler;
 
 use std::io;
 use std::sync::Arc;
@@ -11,15 +10,10 @@ use rmcp::service::ServerInitializeError;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
-const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
+use crate::handler::LocalHandler;
+pub use crate::sdk_diagnostic_filter;
 
-/// Exclude SDK events from a host's tracing layer.
-///
-/// Apply this predicate to every layer that records diagnostics or evidence.
-/// SDK debug fields and cancellation traces can contain raw request data.
-pub fn sdk_diagnostic_filter(metadata: &tracing::Metadata<'_>) -> bool {
-    metadata.target() != "rmcp" && !metadata.target().starts_with("rmcp::")
-}
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// Serve one local MCP connection over the process's standard streams.
 ///
@@ -47,14 +41,14 @@ where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    let handler = handler::LocalHandler::new(runtime, operator.into());
+    let handler = LocalHandler::new(runtime, operator.into());
     serve(reader, writer, handler, shutdown.child_token()).await
 }
 
 async fn serve<R, W>(
     reader: R,
     writer: W,
-    handler: handler::LocalHandler,
+    handler: LocalHandler,
     disconnected: CancellationToken,
 ) -> io::Result<()>
 where
@@ -76,7 +70,7 @@ where
 
 async fn wait_for_service<R>(
     transport: frames::StdioTransport<R>,
-    handler: handler::LocalHandler,
+    handler: LocalHandler,
     disconnected: &CancellationToken,
 ) -> io::Result<()>
 where

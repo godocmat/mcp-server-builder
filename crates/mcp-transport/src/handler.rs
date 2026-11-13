@@ -21,14 +21,32 @@ pub(super) const MODERN: ProtocolVersion = ProtocolVersion::V_2026_07_28;
 pub(super) const LEGACY: ProtocolVersion = ProtocolVersion::V_2025_11_25;
 pub(super) const SUPPORTED: [ProtocolVersion; 2] = [MODERN, LEGACY];
 
+/// Exclude SDK events from each tracing layer that records diagnostics or evidence.
+/// SDK debug fields and cancellation traces can contain raw request data.
+pub fn sdk_diagnostic_filter(metadata: &tracing::Metadata<'_>) -> bool {
+    metadata.target() != "rmcp" && !metadata.target().starts_with("rmcp::")
+}
+
+#[derive(Clone)]
 pub(super) struct LocalHandler {
     runtime: Arc<Runtime>,
-    operator: String,
+    operator: Arc<str>,
+    versions: &'static [ProtocolVersion],
 }
 
 impl LocalHandler {
     pub(super) fn new(runtime: Arc<Runtime>, operator: String) -> Self {
-        Self { runtime, operator }
+        Self {
+            runtime,
+            operator: operator.into(),
+            versions: &SUPPORTED,
+        }
+    }
+
+    #[cfg(feature = "server-http")]
+    pub(super) fn modern_only(mut self) -> Self {
+        self.versions = &[MODERN];
+        self
     }
 
     fn principal(&self) -> Principal<'_> {
@@ -40,7 +58,7 @@ impl LocalHandler {
 
 impl ServerHandler for LocalHandler {
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
-        Cow::Borrowed(&SUPPORTED)
+        Cow::Borrowed(self.versions)
     }
 
     fn get_info(&self) -> ServerConfig {

@@ -2657,7 +2657,13 @@ dependencies = [
 name = "mcp-transport"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "base64 0.23.1",
  "builder-project",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "mcp-policy",
  "mcp-runtime",
  "rmcp",

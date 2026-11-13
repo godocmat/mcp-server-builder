@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::handler::{MODERN, SUPPORTED};
+use crate::handler::{MODERN, SUPPORTED};
 
 #[cfg(test)]
 mod tests;
