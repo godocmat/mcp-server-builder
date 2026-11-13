@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-13 November 2026 · M5 starter adapter integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+13 November 2026 · M6 standalone generator integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -111,12 +111,18 @@ M5 integrated on `master` at `d82eda0`. Validated schema 1 REST tools and fixed 
 
 Windows 11 x64 passed 80 locked non-desktop workspace tests, including 28 starter adapter tests, plus 26 transport checks, all six SDK profiles, Clippy, formatting and CLI smoke. A separate Windows run verified a live public certificate chain with the bundled roots. The isolated Linux native-file harness passed on tmpfs and ext4, including refusal of casefolded directories. The integrated Linux runtime remains pending. macOS file mappings fail closed. [M5 verification](docs/starter-adapters.md#verification)
 
+## M6 standalone generator
+
+M6 integrated on `master` at `360ea21`. `mcp-builder generate` previews or publishes a standalone Cargo workspace with the shared runtime, stdio transport and starter adapters. Repeated Windows exports matched across 61 files and `generation.json`. The regeneration checks preserved an edited handler, required current digests for changed generated files, and left the previous export intact. Operator approvals default to empty and bind to the reviewed manifest revision. [M6 workflow](docs/standalone-generator.md)
+
+Windows passed the locked standalone build, 23 generated workspace tests, Clippy and Inspector CLI checks for both MCP revisions. The generator's 12 tests passed on each of Linux tmpfs and ext4 in an isolated guest. The foundation workflow now includes a generated build and test step for Windows and Linux. Linux standalone wire and hosted CI evidence remain pending. macOS publication is unsupported. Redistribution terms remain subject to ADR-006. [M6 verification](docs/standalone-generator.md#verification) · [ADR-006](DECISIONS.md#adr-006--standalone-generation-and-license-continuity)
+
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
 | F2 · Foundation and platform | Record a hosted run on the three named workers, both coverage artifacts per worker, and the native trial outcome for each WebView. [F2 hosted handoff](docs/ci.md#first-hosted-run) |
-| M1/M2/M6–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries in generated and managed workflows, Windows Job Objects, secret canaries, clean standalone build, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
+| M1/M2/M7–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries across managed and generated workflows, Windows Job Objects, secret canaries, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
 | M7 · MCP | Enforce the selected legacy revision in the playground client and test stop and connection cleanup on the approved launch path. [Client negotiation evidence](docs/stdio-sdk-probe.md#m3-client-auto-discovery) |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |
 | V3/V4/V10 · OAuth and interoperability | Record actual provider, database and access-token settings, TLS and trust inputs, audience isolation, callback and refresh evidence, client registrations, and real client versions and wire outcomes. |
