@@ -107,9 +107,29 @@ impl LockedPath {
         }
         let pe_offset = u32::from_le_bytes(dos_header[60..64].try_into().unwrap());
         self.file.seek(SeekFrom::Start(u64::from(pe_offset)))?;
-        let mut pe_signature = [0; 4];
-        self.file.read_exact(&mut pe_signature)?;
-        if &pe_signature != b"PE\0\0" {
+        const PE_SIGNATURE_LEN: usize = 4;
+        const COFF_HEADER_LEN: usize = 20;
+        const SUBSYSTEM_OFFSET: usize = 68;
+        const IMAGE_FILE_EXECUTABLE_IMAGE: u16 = 0x0002;
+        const IMAGE_FILE_DLL: u16 = 0x2000;
+        const IMAGE_SUBSYSTEM_WINDOWS_CUI: u16 = 3;
+        let mut headers = [0; PE_SIGNATURE_LEN + COFF_HEADER_LEN];
+        self.file.read_exact(&mut headers)?;
+        let optional_header_size = u16::from_le_bytes(headers[20..22].try_into().unwrap());
+        let characteristics = u16::from_le_bytes(headers[22..24].try_into().unwrap());
+        if &headers[..PE_SIGNATURE_LEN] != b"PE\0\0"
+            || usize::from(optional_header_size) < SUBSYSTEM_OFFSET + 2
+            || characteristics & (IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_DLL)
+                != IMAGE_FILE_EXECUTABLE_IMAGE
+        {
+            return Err(invalid_data());
+        }
+        let mut optional_header = [0; SUBSYSTEM_OFFSET + 2];
+        self.file.read_exact(&mut optional_header)?;
+        let magic = u16::from_le_bytes(optional_header[..2].try_into().unwrap());
+        let subsystem = u16::from_le_bytes(optional_header[SUBSYSTEM_OFFSET..].try_into().unwrap());
+        // CREATE_NO_WINDOW is only effective for console applications.
+        if !matches!(magic, 0x010b | 0x020b) || subsystem != IMAGE_SUBSYSTEM_WINDOWS_CUI {
             return Err(invalid_data());
         }
 

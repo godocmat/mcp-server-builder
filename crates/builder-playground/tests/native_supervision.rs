@@ -211,6 +211,23 @@ fn unrelated_inheritable_handles() -> (OwnedHandle, OwnedHandle) {
     }
 }
 
+#[test]
+fn review_rejects_a_gui_executable() {
+    let cwd = tempfile::tempdir().unwrap();
+    let mut spec = spec(cwd.path(), "idle", &[]);
+    let executable = cwd.path().join("gui fixture.exe");
+    let mut bytes = fs::read(&spec.executable).unwrap();
+    let pe_offset = u32::from_le_bytes(bytes[60..64].try_into().unwrap()) as usize;
+    let subsystem = pe_offset + 4 + 20 + 68;
+    bytes[subsystem..subsystem + 2].copy_from_slice(&2u16.to_le_bytes());
+    fs::write(&executable, bytes).unwrap();
+    spec.executable = executable;
+    assert_eq!(
+        review_launch(&spec, binding()).err(),
+        Some(LaunchError::InvalidSpec)
+    );
+}
+
 #[tokio::test]
 async fn preserves_native_arguments_environment_and_stdio() {
     let cwd = tempfile::tempdir().unwrap();
