@@ -20,6 +20,7 @@ M6 should bundle the runtime adapter production sources and carry the `webpki-ro
 
 The host supplies a reviewed absolute path for each mapped `rootRef`. Setup pins the approved directory handle for the lifetime of the adapter. Only a caller-authorized, portable relative path reaches the native open. File results use bounded UTF-8 text. Cancellation discards the result and stops at the next bounded read boundary. A local filesystem operation already inside a system call may complete later. The adapter limits outstanding file and DNS workers to eight each and discards late results. The root and its contents must be controlled by the approved operating-system principal.
 
+- The native path profile caps relative file paths and Windows mapped paths at 64 components.
 - Windows uses local NTFS drive roots and exact stored names. It checks each handle for reparse or special attributes, refuses alternate streams and files with multiple links, and keeps handles without delete sharing through the read.
 - Linux requires `openat2` and genuine procfs on local ext4 or tmpfs. It selects the entry with a metadata-only handle under the pinned root, refuses symlinks, nested mounts and casefolded or encrypted parent directories, and reopens the same verified single-link regular file for data.
 - Unsupported operating systems and filesystem types fail closed for a mapped file root. [Windows relative open](https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntcreatefile) · [Linux pathname lookup](https://docs.kernel.org/filesystems/path-lookup.html)

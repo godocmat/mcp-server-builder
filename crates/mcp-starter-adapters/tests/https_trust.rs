@@ -345,10 +345,15 @@ async fn rejected(leaf: &[u8], trust_ca: bool, alert: AlertDescription) {
 
 #[tokio::test]
 async fn scoped_ca_authenticates_localhost_and_redacts_the_echoed_credential() {
-    let fixture = HttpsFixture::bind(VALID_LEAF).await;
-    let (runtime, secrets) = runtime(&[(FETCH, &fixture.origin)], Some(&fixture.origin), None);
-    let (outcome, result) = fixture.call(&runtime, FETCH).await;
-    assert_success(outcome, result.unwrap(), &secrets);
+    for host in ["localhost", "localhost."] {
+        let mut fixture = HttpsFixture::bind(VALID_LEAF).await;
+        fixture.origin = format!("https://{host}:{}", fixture.origin.port())
+            .parse()
+            .unwrap();
+        let (runtime, secrets) = runtime(&[(FETCH, &fixture.origin)], Some(&fixture.origin), None);
+        let (outcome, result) = fixture.call(&runtime, FETCH).await;
+        assert_success(outcome, result.unwrap(), &secrets);
+    }
 }
 
 #[tokio::test]
