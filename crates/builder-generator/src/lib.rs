@@ -105,12 +105,13 @@ pub fn publish_export(request: &ExportRequest) -> Result<GenerationRecord, Expor
         .map(|(path, file)| (path, file.bytes))
         .collect();
     files.insert(GENERATION_NAME.into(), pretty_json(&generation)?);
-    publication::publish(&request.destination, &files, || {
-        let source = read_manifest(&request.project_root).map_err(|_| ExportError::InputChanged)?;
+    publication::publish(&prepared.destination, &files, || {
+        let source =
+            read_manifest(&prepared.project_root).map_err(|_| ExportError::InputChanged)?;
         if ManifestRevision::of(&source) != prepared.source_revision {
             return Err(ExportError::InputChanged);
         }
-        if let Some(root) = &request.previous_export {
+        if let Some(root) = &prepared.previous_export {
             let current = publication::read_tree(root).map_err(|_| ExportError::InputChanged)?;
             if regenerate::tree_digests(&current) != prepared.previous_digests {
                 return Err(ExportError::InputChanged);
@@ -122,6 +123,9 @@ pub fn publish_export(request: &ExportRequest) -> Result<GenerationRecord, Expor
 }
 
 struct PreparedExport {
+    destination: PathBuf,
+    project_root: PathBuf,
+    previous_export: Option<PathBuf>,
     source_revision: ManifestRevision,
     previous_digests: BTreeMap<String, ManifestRevision>,
     files: OutputFiles,
@@ -130,8 +134,16 @@ struct PreparedExport {
 }
 
 fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
-    publication::check_destination(&request.destination)?;
-    let source = read_manifest(&request.project_root)?;
+    let destination = publication::check_destination(&request.destination)?;
+    let project_root =
+        publication::checked_root(&request.project_root).map_err(|error| match error {
+            ExportError::Storage if missing(&request.project_root) => ExportError::ProjectMissing,
+            error => error,
+        })?;
+    if destination.starts_with(&project_root) {
+        return Err(ExportError::UnsafePath);
+    }
+    let source = read_manifest(&project_root)?;
     let manifest = parse_manifest(&source).map_err(ExportError::InvalidProject)?;
     let source_revision = manifest.revision();
     let mut canonical =
@@ -140,8 +152,15 @@ fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
     let canonical_bytes = pretty_json(&canonical)?;
     let normalized = parse_manifest(&canonical_bytes).map_err(ExportError::InvalidProject)?;
     let mut files = render(&normalized)?;
-    let (previous_digests, conflicts) = if let Some(root) = &request.previous_export {
-        check_separate_destination(root, &request.destination)?;
+    let previous_export = request
+        .previous_export
+        .as_deref()
+        .map(publication::checked_root)
+        .transpose()?;
+    let (previous_digests, conflicts) = if let Some(root) = &previous_export {
+        if destination.starts_with(root) {
+            return Err(ExportError::UnsafePath);
+        }
         regenerate::apply(root, &normalized, &mut files, &request.resolutions)?
     } else {
         if !request.resolutions.is_empty() {
@@ -155,6 +174,9 @@ fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
         .then(|| GenerationRecord::new(&normalized, &files))
         .transpose()?;
     Ok(PreparedExport {
+        destination,
+        project_root,
+        previous_export,
         source_revision,
         previous_digests,
         files,
@@ -191,29 +213,13 @@ fn render(manifest: &ValidatedManifest) -> Result<OutputFiles, ExportError> {
 fn read_manifest(root: &Path) -> Result<Vec<u8>, ExportError> {
     let path = root.join(MANIFEST_NAME);
     match publication::read_file(&path, MAX_MANIFEST_BYTES) {
-        Err(ExportError::Storage)
-            if std::fs::symlink_metadata(&path)
-                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-        {
-            Err(ExportError::ProjectMissing)
-        }
+        Err(ExportError::Storage) if missing(&path) => Err(ExportError::ProjectMissing),
         result => result,
     }
 }
 
-fn check_separate_destination(previous: &Path, destination: &Path) -> Result<(), ExportError> {
-    let parent = destination
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let parent = parent.canonicalize().map_err(|_| ExportError::Storage)?;
-    let previous = previous
-        .canonicalize()
-        .map_err(|_| ExportError::InvalidPreviousExport)?;
-    if parent.starts_with(previous) {
-        return Err(ExportError::UnsafePath);
-    }
-    Ok(())
+fn missing(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
 }
 
 fn pretty_json(value: &impl Serialize) -> Result<Vec<u8>, ExportError> {

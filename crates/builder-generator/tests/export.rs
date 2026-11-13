@@ -239,3 +239,21 @@ fn regeneration_can_explicitly_restore_a_missing_generated_file() {
     assert!(next.destination.join("README.md").is_file());
     assert!(!first.destination.join("README.md").exists());
 }
+
+#[test]
+fn regeneration_refuses_a_foreign_generation_record() {
+    let scratch = tempfile::tempdir().unwrap();
+    let first = request(scratch.path(), "first");
+    project(&first.project_root);
+    publish_export(&first).unwrap();
+    let mut next = request(scratch.path(), "next");
+    next.project_root = scratch.path().join("other-project");
+    project(&next.project_root);
+    next.previous_export = Some(first.destination.clone());
+    assert!(matches!(
+        publish_export(&next),
+        Err(ExportError::InvalidPreviousExport)
+    ));
+    assert!(!next.destination.exists());
+    assert!(first.destination.join(RECORD).exists());
+}
