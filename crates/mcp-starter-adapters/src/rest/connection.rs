@@ -92,7 +92,10 @@ fn tls_config(roots: RootCertStore) -> Result<Arc<ClientConfig>, SetupError> {
 pub(super) async fn dial(peer: SocketAddr) -> io::Result<(TcpStream, SocketAddr)> {
     let socket = TcpStream::connect(peer).await?;
     let actual = socket.peer_addr()?;
-    if actual.ip().to_canonical() != peer.ip().to_canonical() || actual.port() != peer.port() {
+    if actual.ip().to_canonical() != peer.ip().to_canonical()
+        || actual.port() != peer.port()
+        || matches!((actual, peer), (SocketAddr::V6(actual), SocketAddr::V6(expected)) if actual.scope_id() != expected.scope_id())
+    {
         return Err(io::Error::other("unexpected connected address"));
     }
     Ok((socket, actual))

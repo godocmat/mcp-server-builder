@@ -24,7 +24,10 @@ use serde_json::{Map, Value};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-use crate::{SecretRequest, SecretResolver, SetupError, failed, invalid_arguments, output_limit};
+use crate::{
+    CancelPending, SecretRequest, SecretResolver, SetupError, failed, invalid_arguments,
+    output_limit,
+};
 
 const MAX_PATH_BYTES: usize = 2048;
 const MAX_PEERS: usize = 16;
@@ -71,6 +74,8 @@ pub(super) struct Client {
     trust: connection::Trust,
     secrets: Option<Arc<dyn SecretResolver>>,
     dns_workers: Arc<Semaphore>,
+    #[cfg(test)]
+    resolver: Option<fn(&str, u16) -> Vec<SocketAddr>>,
 }
 
 impl Client {
@@ -82,6 +87,8 @@ impl Client {
             trust: connection::Trust::new(private_cas)?,
             secrets,
             dns_workers: Arc::new(Semaphore::new(8)),
+            #[cfg(test)]
+            resolver: None,
         })
     }
 
@@ -150,6 +157,10 @@ impl Client {
         if let Some(ip) = origin.literal_ip() {
             return Ok(vec![SocketAddr::new(ip, origin.port())]);
         }
+        #[cfg(test)]
+        if let Some(resolve) = self.resolver {
+            return validate_addresses(resolve(origin.host(), origin.port()), origin.port());
+        }
         let permit = Arc::clone(&self.dns_workers)
             .acquire_owned()
             .await
@@ -160,34 +171,52 @@ impl Client {
         let deadline = context.deadline();
         // A system lookup in progress cannot be interrupted. Keep the worker
         // slot until it completes and discard its late answers with the call.
-        tokio::task::spawn_blocking(move || {
+        let lookup = tokio::task::spawn_blocking(move || {
             use std::net::ToSocketAddrs as _;
 
             let _permit = permit;
             if cancellation.is_cancelled() || Instant::now() >= deadline {
                 return Err(failed(Effect::None));
             }
+            // Keep resolver search suffixes outside the configured origin.
+            let host = if host.ends_with('.') {
+                host
+            } else {
+                format!("{host}.")
+            };
             let answers = (host.as_str(), port)
                 .to_socket_addrs()
                 .map_err(|_| failed(Effect::None))?;
-            let mut peers = Vec::new();
-            for answer in answers {
-                let address = SocketAddr::new(answer.ip().to_canonical(), answer.port());
-                if !peers.contains(&address) {
-                    if peers.len() >= MAX_PEERS || address.port() != port {
-                        return Err(failed(Effect::None));
-                    }
-                    peers.push(address);
-                }
+            validate_addresses(answers, port)
+        });
+        let _abort = CancelPending::new(&lookup);
+        lookup.await.map_err(|_| failed(Effect::None))?
+    }
+}
+
+fn validate_addresses(
+    answers: impl IntoIterator<Item = SocketAddr>,
+    port: u16,
+) -> Result<Vec<SocketAddr>, AdapterError> {
+    let mut peers = Vec::new();
+    for answer in answers {
+        let address = match answer {
+            SocketAddr::V6(address) if address.ip().to_ipv4_mapped().is_some() => {
+                SocketAddr::new(answer.ip().to_canonical(), answer.port())
             }
-            if peers.is_empty() {
+            _ => answer,
+        };
+        if !peers.contains(&address) {
+            if peers.len() >= MAX_PEERS || address.port() != port {
                 return Err(failed(Effect::None));
             }
-            Ok(peers)
-        })
-        .await
-        .map_err(|_| failed(Effect::None))?
+            peers.push(address);
+        }
     }
+    if peers.is_empty() {
+        return Err(failed(Effect::None));
+    }
+    Ok(peers)
 }
 
 struct Call<'a> {
@@ -219,9 +248,9 @@ impl PreparedCall for Call<'_> {
 impl Call<'_> {
     async fn run(&self, context: &AdapterContext<'_>) -> Result<AdapterOutput, AdapterError> {
         let mut route = self.route.clone();
-        let mut redirected = false;
         let mut credentials = None;
         for hop in 0..=MAX_REDIRECTS {
+            let redirected = hop != 0;
             let peers = self.client.resolve(&route.origin, context).await?;
             // A mixed answer fails closed. No socket is opened until all answers
             // satisfy the same route and peer policy.
@@ -230,7 +259,6 @@ impl Call<'_> {
             }
             let mut stream = None;
             for peer in peers {
-                authorize(context, &route, peer, redirected)?;
                 if let Ok((socket, actual_peer)) = connection::dial(peer).await {
                     authorize(context, &route, actual_peer, redirected)?;
                     stream = Some((socket, actual_peer));
@@ -285,7 +313,6 @@ impl Call<'_> {
                 context
                     .preflight_redirect(&route)
                     .map_err(|_| failed(effect))?;
-                redirected = true;
                 continue;
             }
             if !status.is_success() {
@@ -331,6 +358,7 @@ fn safe_path(path: &str) -> bool {
     path.len() <= MAX_PATH_BYTES
         && path.starts_with('/')
         && !path.contains("//")
+        && UriRef::parse(path).is_ok()
         && path
             .parse::<Uri>()
             .is_ok_and(|uri| uri.authority().is_none() && uri.path() == path)
@@ -454,3 +482,6 @@ async fn response_output(
         effect,
     })
 }
+
+#[cfg(test)]
+mod tests;

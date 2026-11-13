@@ -167,3 +167,19 @@ fn output_limit(effect: Effect) -> AdapterError {
         effect,
     }
 }
+
+// Abort a blocking job if it is still queued when its caller is cancelled.
+// Jobs already running retain their worker slot and check cancellation at use.
+struct CancelPending(tokio::task::AbortHandle);
+
+impl CancelPending {
+    fn new<T>(task: &tokio::task::JoinHandle<T>) -> Self {
+        Self(task.abort_handle())
+    }
+}
+
+impl Drop for CancelPending {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}

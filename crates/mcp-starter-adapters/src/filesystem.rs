@@ -18,7 +18,7 @@ use mcp_runtime::{
 };
 use tokio::sync::Semaphore;
 
-use crate::{SetupError, failed, invalid_arguments, output_limit};
+use crate::{CancelPending, SetupError, failed, invalid_arguments, output_limit};
 
 pub(super) struct Binding {
     root_ref: String,
@@ -125,7 +125,7 @@ impl PreparedCall for FileCall<'_> {
             let cancellation = context.cancellation().clone();
             let mut budget = context.limits().output_budget();
             let path = self.path;
-            let text = tokio::task::spawn_blocking(move || {
+            let read = tokio::task::spawn_blocking(move || {
                 let _worker = worker;
                 let check_active = || {
                     if cancellation.is_cancelled() || Instant::now() >= deadline {
@@ -152,9 +152,9 @@ impl PreparedCall for FileCall<'_> {
                     bytes.extend_from_slice(&buffer[..count]);
                 }
                 String::from_utf8(bytes).map_err(|_| failed(Effect::None))
-            })
-            .await
-            .map_err(|_| failed(Effect::None))??;
+            });
+            let _abort = CancelPending::new(&read);
+            let text = read.await.map_err(|_| failed(Effect::None))??;
             Ok(AdapterOutput::Resource { text })
         })
     }
