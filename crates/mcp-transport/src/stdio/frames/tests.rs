@@ -133,3 +133,31 @@ async fn partial_rejection_cannot_interleave_and_cancelled_generation_stays_sile
     writer.await.unwrap();
     assert!(client_output.fill_buf().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn active_request_limit_leaves_cancellation_available() {
+    let wire = Wire::new(CancellationToken::new());
+    let mut lifecycle = Lifecycle::Undecided;
+    for id in 0..MAX_IN_FLIGHT as i64 {
+        assert!(
+            decode(&request(id, None), &wire, &mut lifecycle)
+                .unwrap()
+                .is_some()
+        );
+    }
+    let full = decode(&request(100, None), &wire, &mut lifecycle).unwrap_err();
+    assert_eq!(full.0.code, ErrorCode::INTERNAL_ERROR);
+    assert_eq!(full.1, Some(NumberOrString::Number(100)));
+    let cancellation =
+        br#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":0}}"#;
+    assert!(
+        decode(cancellation, &wire, &mut lifecycle)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        decode(&request(100, None), &wire, &mut lifecycle)
+            .unwrap()
+            .is_some()
+    );
+}

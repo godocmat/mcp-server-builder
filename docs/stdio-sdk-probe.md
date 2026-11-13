@@ -31,3 +31,19 @@ $env:CARGO_PROFILE_DEV_DEBUG = '0'
 cargo build --locked --offline --manifest-path target/m3-sdk-probe/Cargo.toml
 python.exe target/m3-sdk-probe/probe.py (Join-Path $env:CARGO_TARGET_DIR 'debug/m3-sdk-probe.exe')
 ```
+
+## M3 transport verification
+
+The `server-stdio` Cargo feature exposes `mcp_transport::stdio::serve_stdio` for the reviewed runtime and trusted local operator. It uses the same runtime for both revisions. Hosts apply `sdk_diagnostic_filter` to each tracing layer before serving. The local wire accepts up to 16 active requests per connection and reserves cancellation handling at that limit. Frames include their newline in the 1 MiB input and output limits. String request IDs and progress tokens are capped at 1 KiB so the writer can correlate bounded error replies.
+
+```powershell
+. (Join-Path $env:LOCALAPPDATA 'McpBuilderF1/env.ps1')
+$env:CARGO_TARGET_DIR = Join-Path (Get-Location).Path 'target'
+cargo test --locked -p mcp-transport --features server-stdio
+cargo clippy --locked -p mcp-transport --all-targets --features server-stdio -- -D warnings
+cargo build --locked -p mcp-transport --no-default-features --features server-stdio,server-http
+```
+
+The Windows tests run the actual transport and schema 1 runtime in a subprocess and drive raw JSON-RPC through its pipes. Six scenarios cover both versions, discovery and direct calls, tools and their schemas, concrete and expanded resource reads, prompts, policy-denial metadata, malformed and oversized frames, cancellation isolation, duplicate identifiers and progress tokens, a sibling timeout, and EOF with work in flight. They check stdout framing and scan stderr for a synthetic cancellation canary with SDK tracing requested. Three frame tests cover serialized output limits, queued and partially written frames during cancellation, and continued cancellation when request admission reaches its limit. [Wire harness](../crates/mcp-transport/tests/stdio_wire.rs) · [Frame tests](../crates/mcp-transport/src/stdio/frames/tests.rs)
+
+The server-side legacy fallback is exercised through an older offered version and the legacy initialization path. The client-side auto probe against legacy-only error and silence fixtures, and the recognized-modern-error path, still need raw client-side evidence. M4 owns HTTP and the SDK pin decision. [Compatibility matrix](mcp-compatibility.md#wire-tests-and-release-evidence)
