@@ -61,6 +61,12 @@ The tested inputs use Rust `1.99.1`, Node `24.22.3` and npm `11.19.1` as the pri
 | M2 · Local execution policy | Implement grants, constraints, limits and redaction in `mcp-policy`. `mcp-runtime` already has the dependency edge for shared dispatch. |
 | M3/M4 · MCP | Use the optional SDK profiles in `mcp-transport` for real stdio and HTTP tests. Verify revision and session behavior, cancellation and the final SDK feature selection. |
 
+## M2 local execution policy
+
+Branch `codex/m2-local-execution-policy` started from verified F1 integration `139f0920d4e0ddff2244cbf4fab5fd32e7dd8ff0`. The shared policy crate implements portable grant validation, caller visibility, operator and caller authorization, verified target matching, per-call ceilings and evidence redaction. M1 can use the grant types and field diagnostics. M3 can use the evaluator and limits for dispatch, discovery and cancellation. [M2 API, checks and handoff](docs/local-execution-policy.md)
+
+The Windows policy suite passed 15 tests, including synthetic-secret scans for structured evidence and buffered stderr. The non-desktop workspace passed 17 tests. Formatting and Clippy passed. `Cargo.lock` records the policy crate's dependencies using package versions already locked by F1.
+
 ## Verification carried forward
 
 | First task | Evidence still required |
