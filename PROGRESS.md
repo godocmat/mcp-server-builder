@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-13 November 2026 · F2, M1 and M2 integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+13 November 2026 · M3 runtime and stdio integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -89,13 +89,23 @@ The M1 integration merges `15cdddb` and uses the M2 requested policy type direct
 
 The integrated Windows checkout passed all 44 locked workspace tests, including the native replacement and catalog recovery checks. The full Rust checks used the browser assets already verified by F2. [Integrated verification](docs/local-project-model.md#integrated-verification)
 
+## M3 runtime and stdio
+
+The integrated runtime projects a validated schema 1 manifest into an immutable registry with shared policy, offline input and output validation, caller-scoped pagination, deadlines and cancellation. The opt-in `server-stdio` feature serves MCP `2026-07-28` and `2025-11-25` through bounded JSON-RPC frames. The test harness uses a synthetic adapter and real subprocess pipes. [Shared runtime](docs/local-runtime.md) · [Stdio verification](docs/stdio-sdk-probe.md#m3-transport-verification)
+
+Windows 11 x64 passed all 51 workspace tests, both locked workspace builds, workspace Clippy and the CLI smoke at `9929c15`. All three framing tests, six raw subprocess scenarios, feature Clippy, format, workflow lint and six locked SDK feature profiles passed. Both lockfiles stayed intact. The foundation matrix now selects the stdio feature for the subprocess suite. [CI commands](docs/ci.md#reproduce-the-checks)
+
+Ubuntu 24.04.3 amd64 userspace under WSL2 passed the three framing tests, six raw subprocess scenarios and all-target stdio Clippy at `9929c15`. The 50 focused application, project, runtime and policy tests and corresponding Clippy passed on the same production sources. [Runtime verification](docs/local-runtime.md#verification) · [Stdio verification](docs/stdio-sdk-probe.md#m3-transport-verification)
+
+The stdio suite exercises server-side legacy initialization and version selection. Client auto-probe evidence against legacy error and silence fixtures and a recognized modern error remains open. M4 owns loopback HTTP and the final SDK pin. The first GitHub-hosted run and the M10 line-coverage gate remain pending. The foundation LCOV report covers the default transport selection. [Wire and client matrix](docs/mcp-compatibility.md#wire-tests-and-release-evidence) · [Coverage requirements](docs/testing.md#ci-and-release-evidence)
+
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
 | F2 · Foundation and platform | Record a hosted run on the three named workers, both coverage artifacts per worker, and the native trial outcome for each WebView. [F2 hosted handoff](docs/ci.md#first-hosted-run) |
 | M1/M2/M5–M10 · Pilot owners | Prove safe saves and recovery, approved adapter and launch boundaries, Windows Job Objects and filesystem behavior, secret canaries, clean standalone build, coverage, benchmark and Windows installer/CLI and accessibility smoke. |
-| M3/M4 · MCP | Verify both revisions over real stdio and HTTP, the issued legacy and sessionless comparison, cancellation and the initial SDK pin. |
+| M3/M4 · MCP | Verify client auto-probe behavior and both revisions over loopback HTTP, including cancellation and the issued legacy and sessionless comparison. Complete the SDK pin and record independent client evidence. |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |
 | V3/V4/V10 · OAuth and interoperability | Record actual provider, database and access-token settings, TLS and trust inputs, audience isolation, callback and refresh evidence, client registrations, and real client versions and wire outcomes. |
 | R1/R3 · Deployment and security | Verify DNS/TLS and renewal, both Linux deployment profiles, bounded drain, secret rotation, denial, coverage and clean restore after a failed rollout. |
