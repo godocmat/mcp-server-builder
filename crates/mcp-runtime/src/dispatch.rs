@@ -7,7 +7,8 @@ use mcp_policy::{Action, Effect, ExecutionCeiling, ExecutionLimits, OperationCon
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::execution::serialized_len;
+use crate::adapter::TargetState;
+use crate::execution::{json_depth_is_bounded, serialized_len};
 use crate::syntax::ResourceAddress;
 use crate::{
     AdapterBinding, AdapterContext, AdapterOutput, CancellationToken, ErrorKind, ExecutionContext,
@@ -31,8 +32,10 @@ impl Runtime {
                 self.adapter_visible(context.principal, &def.id, &def.binding, now)
             })
             .ok_or_else(|| context.error(ErrorKind::UnknownTool, Effect::None))?;
+        check_cancelled(context, Effect::None)?;
         let arguments = Value::Object(arguments);
-        if !fits(&arguments, ExecutionLimits::MAX_INPUT_BYTES)
+        if !json_depth_is_bounded(&arguments, 64)
+            || !fits(&arguments, ExecutionLimits::MAX_INPUT_BYTES)
             || !tool.input_schema.is_valid(&arguments)
         {
             return Err(context.error(ErrorKind::InvalidArguments, Effect::None));
@@ -53,19 +56,20 @@ impl Runtime {
             effect,
         } = output
         else {
-            return Err(context.error(ErrorKind::InvalidOutput, Effect::None));
+            return Err(context.error(ErrorKind::InvalidOutput, Effect::Unknown));
         };
+        check_finished(context, ceiling, effect)?;
         let max_output = ceiling.limits.max_output_bytes();
+        let structured = structured_content.map(Value::Object);
         if text
             .as_ref()
             .is_some_and(|text| text.len() as u64 > max_output)
-            || structured_content
+            || structured
                 .as_ref()
-                .is_some_and(|value| !fits(value, max_output))
+                .is_some_and(|value| !json_depth_is_bounded(value, 64) || !fits(value, max_output))
         {
             return Err(context.error(ErrorKind::OutputLimit, effect));
         }
-        let structured = structured_content.map(Value::Object);
         if let Some(schema) = &tool.output_schema
             && !structured
                 .as_ref()
@@ -112,6 +116,7 @@ impl Runtime {
             ) && item.address.overlaps(&address)
         });
         let (capability_id, binding, mime_type, variables) = if let Some(resource) = resource {
+            check_cancelled(context, Effect::None)?;
             let def = &resource.definition;
             (
                 def.id.as_str(),
@@ -132,6 +137,7 @@ impl Runtime {
                     ) && item.address.overlaps(&address)
                 })
                 .ok_or_else(unknown)?;
+            check_cancelled(context, Effect::None)?;
             let invalid = || context.error(ErrorKind::InvalidArguments, Effect::None);
             let variables = template.address.capture(&address).ok_or_else(invalid)?;
             if !template.variables.iter().all(|(key, schema)| {
@@ -190,6 +196,7 @@ impl Runtime {
             .get(name)
             .filter(|item| self.prompt_visible(context.principal, &item.definition.id, now))
             .ok_or_else(|| context.error(ErrorKind::UnknownPrompt, Effect::None))?;
+        check_cancelled(context, Effect::None)?;
         if !fits(&arguments, ExecutionLimits::MAX_INPUT_BYTES)
             || arguments
                 .keys()
@@ -254,6 +261,7 @@ impl Runtime {
                 Instant::now(),
             )
             .map_err(|reason| context.denial(reason))?;
+        check_finished(context, ceiling, Effect::None)?;
         let cancellation = context.cancellation.child_token();
         let _guard = cancellation.clone().drop_guard();
         let preparation = PreparationContext {
@@ -263,7 +271,7 @@ impl Runtime {
         };
         let capability_id = invocation.capability_id;
         let prepared = wait_for_preparation(
-            self.adapter.prepare(invocation, &preparation),
+            async { self.adapter.prepare(invocation, &preparation).await },
             &preparation.cancellation,
             ceiling.deadline,
         )
@@ -299,23 +307,48 @@ impl Runtime {
             timeout_ms: binding.timeout_ms,
             requested_limits: context.limits,
             admitted_at: context.admitted_at,
-            ceiling: Mutex::new(ceiling),
+            state: Mutex::new(TargetState {
+                ceiling,
+                denial: None,
+            }),
             progress: context.progress,
             progress_state: Default::default(),
             deadline_changed: Default::default(),
         };
-        let mut handler = prepared.execute(&execution);
+        let handler = async { prepared.execute(&execution).await };
+        tokio::pin!(handler);
         let output = loop {
             let deadline = execution.deadline();
             tokio::select! {
                 biased;
-                () = execution.cancellation().cancelled() => return Err(context.error(ErrorKind::Cancelled, Effect::Unknown)),
+                () = execution.cancellation().cancelled() => {
+                    execution.cancellation().cancel();
+                    return Err(context.error(ErrorKind::Cancelled, Effect::Unknown));
+                }
                 () = execution.deadline_changed.notified() => continue,
-                () = tokio::time::sleep_until(deadline.into()) => return Err(context.error(ErrorKind::TimedOut, Effect::Unknown)),
+                () = tokio::time::sleep_until(deadline.into()) => {
+                    execution.cancellation().cancel();
+                    return Err(context.error(ErrorKind::TimedOut, Effect::Unknown));
+                }
                 output = &mut handler => break output,
             }
-        }.map_err(|failure| context.error(ErrorKind::AdapterFailed, failure.effect))?;
-        Ok((output, execution.current_ceiling()))
+        };
+        let effect = match &output {
+            Ok(AdapterOutput::Tool { effect, .. }) => *effect,
+            Ok(AdapterOutput::Resource { .. }) => Effect::None,
+            Err(error) => error.effect,
+        };
+        let ceiling = execution.current_ceiling();
+        check_finished(context, ceiling, effect)?;
+        if let Some(reason) = execution.recheck_denial() {
+            return Err(RuntimeError {
+                effect,
+                ..context.denial(reason)
+            });
+        }
+        output
+            .map(|output| (output, ceiling))
+            .map_err(|_| context.error(ErrorKind::AdapterFailed, effect))
     }
 }
 
@@ -341,11 +374,16 @@ fn check_finished(
     ceiling: ExecutionCeiling,
     effect: Effect,
 ) -> Result<(), RuntimeError> {
-    if context.cancellation.is_cancelled() {
-        return Err(context.error(ErrorKind::Cancelled, effect));
-    }
+    check_cancelled(context, effect)?;
     if Instant::now() >= ceiling.deadline {
         return Err(context.error(ErrorKind::TimedOut, effect));
+    }
+    Ok(())
+}
+
+fn check_cancelled(context: &ExecutionContext<'_>, effect: Effect) -> Result<(), RuntimeError> {
+    if context.cancellation.is_cancelled() {
+        return Err(context.error(ErrorKind::Cancelled, effect));
     }
     Ok(())
 }

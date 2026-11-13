@@ -858,10 +858,8 @@ fn overlapping_permissions_tighten_limits_and_rechecks_keep_admission_time() {
     let mut updated_operator = operator.clone();
     updated_operator.approved_grants.pop();
     context.requested_limits = LimitOverrides::default();
-    let recheck = Policy::new(&requests, &updated_operator)
-        .unwrap()
-        .evaluate(&context)
-        .unwrap();
+    let updated_policy = Policy::new(&requests, &updated_operator).unwrap();
+    let recheck = updated_policy.evaluate(&context).unwrap();
     assert_eq!(recheck.ceiling(), permit.ceiling());
     updated_operator.approved_grants.clear();
     assert_eq!(
