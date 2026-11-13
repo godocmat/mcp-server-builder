@@ -35,7 +35,7 @@ pub fn is_portable_path(value: &str) -> bool {
     value.len() <= 4096 && value.split('/').all(is_portable_segment)
 }
 
-fn is_portable_segment(value: &str) -> bool {
+pub fn is_portable_segment(value: &str) -> bool {
     if value.is_empty()
         || value.ends_with(['.', ' '])
         || value.contains(['/', '<', '>', ':', '"', '\\', '|', '?', '*', '{', '}'])
@@ -137,6 +137,45 @@ impl SegmentTemplate {
             }
         }
     }
+}
+
+/// Expand each simple variable with a value in the syntax of its containing path.
+pub fn render_path<'a>(
+    parts: &[SegmentTemplate],
+    mut value: impl FnMut(&str) -> Option<std::borrow::Cow<'a, str>>,
+    max_bytes: usize,
+) -> Option<String> {
+    let mut output = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index != 0 {
+            push_path_part(&mut output, "/", max_bytes)?;
+        }
+        match part {
+            SegmentTemplate::Literal(segment) => push_path_part(&mut output, segment, max_bytes)?,
+            SegmentTemplate::Variable {
+                prefix,
+                name,
+                suffix,
+            } => {
+                let value = value(name)?;
+                if value.is_empty() {
+                    return None;
+                }
+                push_path_part(&mut output, prefix, max_bytes)?;
+                push_path_part(&mut output, &value, max_bytes)?;
+                push_path_part(&mut output, suffix, max_bytes)?;
+            }
+        }
+    }
+    Some(output)
+}
+
+fn push_path_part(output: &mut String, part: &str, max_bytes: usize) -> Option<()> {
+    if part.len() > max_bytes - output.len() {
+        return None;
+    }
+    output.push_str(part);
+    Some(())
 }
 
 pub fn segments(path: &str) -> Option<Vec<SegmentTemplate>> {

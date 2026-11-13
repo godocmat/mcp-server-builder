@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
 use mcp_policy::Operation;
+use mcp_runtime::bindings::{FileReadBinding, RestBinding, StarterBinding, credential_header};
 use mcp_runtime::{
     AdapterBinding, PromptArgument, PromptDefinition, PromptInfo, PromptTemplateMessage,
     ResourceDefinition, ResourceInfo, ResourceTemplateDefinition, ResourceTemplateInfo, Role,
@@ -9,6 +10,42 @@ use mcp_runtime::{
 };
 
 use crate::{Binding, Capability, PromptRole, ValidatedManifest, syntax};
+
+/// Project binding configuration for the live starter adapter. This resolves no local inputs.
+pub fn runtime_bindings(manifest: &ValidatedManifest) -> BTreeMap<String, StarterBinding> {
+    manifest
+        .document()
+        .bindings
+        .iter()
+        .map(|binding| {
+            let config = match binding {
+                Binding::Rest(binding) => StarterBinding::Rest(RestBinding {
+                    origin: syntax::http_origin(&binding.origin).expect("validated HTTP origin"),
+                    method: syntax::http_method(&binding.method).expect("validated HTTP method"),
+                    path_template: binding.path_template.clone(),
+                    path_params: binding.path_params.clone(),
+                    body_pointer: binding.body_pointer.clone(),
+                    headers_from_secrets: binding
+                        .headers_from_secrets
+                        .iter()
+                        .flatten()
+                        .map(|(name, reference)| {
+                            (
+                                credential_header(name).expect("validated header"),
+                                reference.clone(),
+                            )
+                        })
+                        .collect(),
+                }),
+                Binding::FileRead(binding) => StarterBinding::FileRead(FileReadBinding {
+                    root_ref: binding.root_ref.clone(),
+                    relative_path_template: binding.relative_path_template.clone(),
+                }),
+            };
+            (binding.id().into(), config)
+        })
+        .collect()
+}
 
 /// Project an already validated manifest into the transport-neutral runtime catalog.
 pub fn runtime_definition(manifest: &ValidatedManifest) -> ServerDefinition {
@@ -36,11 +73,7 @@ pub fn runtime_definition(manifest: &ValidatedManifest) -> ServerDefinition {
         let operation = match bindings[id] {
             Binding::Rest(binding) => {
                 let method = syntax::http_method(&binding.method).expect("validated HTTP method");
-                if method.is_read() {
-                    Operation::HttpRead
-                } else {
-                    Operation::HttpWrite
-                }
+                Operation::from_http_method(method)
             }
             Binding::FileRead(_) => Operation::FileRead,
         };

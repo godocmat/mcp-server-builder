@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
-use http::header::HeaderName;
 use mcp_policy::{GrantTarget, HttpMethod, HttpOrigin, RequestedPolicy};
+use mcp_runtime::bindings::credential_header;
 
 use super::{Check, MAX_OUTPUT_BYTES, MAX_RECORDS, binding_id};
 use crate::syntax::{
@@ -90,25 +90,9 @@ impl Check {
             );
             let mut names = BTreeSet::new();
             for (name, reference) in headers.iter().take(MAX_RECORDS) {
-                let valid_name = name.len() <= 128
-                    && name.parse::<HeaderName>().is_ok_and(|name| {
-                        !matches!(
-                            name.as_str(),
-                            "host"
-                                | "content-length"
-                                | "transfer-encoding"
-                                | "connection"
-                                | "keep-alive"
-                                | "upgrade"
-                                | "te"
-                                | "trailer"
-                                | "proxy-authorization"
-                                | "proxy-connection"
-                                | "expect"
-                        )
-                    });
                 self.require(
-                    valid_name && names.insert(name.to_ascii_lowercase()),
+                    credential_header(name)
+                        .is_some_and(|name| names.insert(name.as_str().to_owned())),
                     IssueCode::Field,
                     "/headersFromSecrets",
                     "Use distinct, supported HTTP header names.",

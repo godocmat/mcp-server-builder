@@ -14,7 +14,7 @@ pub use mcp_runtime::syntax::is_portable_path;
 pub use parse::{
     ManifestError, SchemaVersion, ValidatedManifest, parse_manifest, validate_document,
 };
-pub use projection::runtime_definition;
+pub use projection::{runtime_bindings, runtime_definition};
 pub use revision::{InvalidRevision, ManifestRevision};
 pub use scenario::*;
 

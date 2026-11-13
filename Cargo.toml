@@ -9,6 +9,7 @@ members = [
     "crates/builder-project",
     "crates/mcp-policy",
     "crates/mcp-runtime",
+    "crates/mcp-starter-adapters",
     "crates/mcp-transport",
 ]
 
@@ -25,6 +26,7 @@ builder-playground = { path = "crates/builder-playground" }
 builder-project = { path = "crates/builder-project" }
 mcp-policy = { path = "crates/mcp-policy" }
 mcp-runtime = { path = "crates/mcp-runtime" }
+mcp-starter-adapters = { path = "crates/mcp-starter-adapters" }
 mcp-transport = { path = "crates/mcp-transport" }
 
 clap = { version = "=4.6.7", features = ["derive"] }

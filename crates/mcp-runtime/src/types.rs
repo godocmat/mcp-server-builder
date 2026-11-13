@@ -207,6 +207,8 @@ pub enum ErrorKind {
     OutputLimit,
     AdapterFailed,
     CredentialMissing,
+    CredentialUnavailable,
+    CredentialInvalid,
     Cancelled,
     TimedOut,
 }
@@ -232,6 +234,8 @@ impl RuntimeError {
             ErrorKind::OutputLimit => "runtime.output_limit",
             ErrorKind::AdapterFailed => "adapter.failed",
             ErrorKind::CredentialMissing => "credential.missing",
+            ErrorKind::CredentialUnavailable => "credential.unavailable",
+            ErrorKind::CredentialInvalid => "credential.invalid",
             ErrorKind::Cancelled => "run.cancelled",
             ErrorKind::TimedOut => "runtime.timeout",
         }
@@ -251,6 +255,8 @@ impl RuntimeError {
             ErrorKind::CredentialMissing => {
                 "Supply the credential configured for this integration."
             }
+            ErrorKind::CredentialUnavailable => "The credential source is unavailable.",
+            ErrorKind::CredentialInvalid => "Supply a valid credential for this integration.",
             ErrorKind::Cancelled => "The operation was cancelled.",
             ErrorKind::TimedOut => "The operation exceeded its deadline.",
         }

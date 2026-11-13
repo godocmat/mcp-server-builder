@@ -11,9 +11,10 @@ use crate::adapter::TargetState;
 use crate::execution::{json_depth_is_bounded, serialized_len};
 use crate::syntax::ResourceAddress;
 use crate::{
-    AdapterBinding, AdapterContext, AdapterOutput, CancellationToken, ErrorKind, ExecutionContext,
-    Invocation, InvocationInput, PreparationContext, PreparedTarget, PromptMessage, PromptResult,
-    ResourceContent, ResourceResult, Runtime, RuntimeError, TextContent, ToolResult, prompt,
+    AdapterBinding, AdapterContext, AdapterErrorKind, AdapterOutput, CancellationToken, ErrorKind,
+    ExecutionContext, Invocation, InvocationInput, PreparationContext, PreparedTarget,
+    PromptMessage, PromptResult, ResourceContent, ResourceResult, Runtime, RuntimeError,
+    TextContent, ToolResult, prompt,
 };
 
 impl Runtime {
@@ -277,7 +278,7 @@ impl Runtime {
         )
         .await
         .map_err(|kind| context.error(kind, Effect::None))?
-        .map_err(|error| context.error(error.kind.into(), Effect::None))?;
+        .map_err(|error| adapter_failure(context, error.kind, Effect::None))?;
         check_finished(context, ceiling, Effect::None)?;
         let target = prepared.target();
         let ceiling = self
@@ -362,8 +363,22 @@ impl Runtime {
         }
         output
             .map(|output| (output, ceiling))
-            .map_err(|error| context.error(error.kind.into(), effect))
+            .map_err(|error| adapter_failure(context, error.kind, effect))
     }
+}
+
+fn adapter_failure(
+    context: &ExecutionContext<'_>,
+    kind: AdapterErrorKind,
+    effect: Effect,
+) -> RuntimeError {
+    if let AdapterErrorKind::Denied(reason) = kind {
+        return RuntimeError {
+            effect,
+            ..context.denial(reason)
+        };
+    }
+    context.error(kind.runtime_kind(), effect)
 }
 
 async fn wait_for_preparation<T>(

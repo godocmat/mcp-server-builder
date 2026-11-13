@@ -1,6 +1,7 @@
 //! Transport-neutral server definition and dispatch for preview and generated servers.
 
 mod adapter;
+pub mod bindings;
 mod dispatch;
 mod execution;
 mod pagination;

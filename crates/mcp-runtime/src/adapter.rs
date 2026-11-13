@@ -81,15 +81,21 @@ pub enum AdapterErrorKind {
     InvalidArguments,
     OutputLimit,
     CredentialMissing,
+    CredentialUnavailable,
+    CredentialInvalid,
+    Denied(DenyReason),
 }
 
-impl From<AdapterErrorKind> for ErrorKind {
-    fn from(kind: AdapterErrorKind) -> Self {
-        match kind {
-            AdapterErrorKind::Failed => Self::AdapterFailed,
-            AdapterErrorKind::InvalidArguments => Self::InvalidArguments,
-            AdapterErrorKind::OutputLimit => Self::OutputLimit,
-            AdapterErrorKind::CredentialMissing => Self::CredentialMissing,
+impl AdapterErrorKind {
+    pub(crate) fn runtime_kind(self) -> ErrorKind {
+        match self {
+            Self::Failed => ErrorKind::AdapterFailed,
+            Self::InvalidArguments => ErrorKind::InvalidArguments,
+            Self::OutputLimit => ErrorKind::OutputLimit,
+            Self::CredentialMissing => ErrorKind::CredentialMissing,
+            Self::CredentialUnavailable => ErrorKind::CredentialUnavailable,
+            Self::CredentialInvalid => ErrorKind::CredentialInvalid,
+            Self::Denied(_) => ErrorKind::Denied,
         }
     }
 }

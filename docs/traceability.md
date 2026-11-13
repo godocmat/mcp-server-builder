@@ -59,7 +59,8 @@ Count executable authored production lines for the selected milestone. The core 
 | Component and planned source path | Core denominator | Security-critical denominator |
 | --- | --- | --- |
 | Policy · `crates/mcp-policy/src/**` | Grant and decision rules, limit and redaction behavior | All enforcement, validation, deny reasons, redaction and limit logic |
-| Runtime · `crates/mcp-runtime/src/**` | Capability registry, schema validation, dispatch, runtime state, adapter and process behavior | Dispatch authorization, target binding, data and argument validation, credential scoping, cancellation, cleanup and bounds |
+| Runtime · `crates/mcp-runtime/src/**` | Capability registry, schema validation, dispatch and runtime state | Dispatch authorization, target binding, data and argument validation, cancellation and bounds |
+| Starter adapters · `crates/mcp-starter-adapters/src/**` | REST and file binding execution | Route, DNS and peer checks, TLS, credential scoping, native handle checks, cleanup and bounds |
 | Transport · `crates/mcp-transport/src/**` | Client and server lifecycle, protocol conversion, response and error mapping | Framing and size guards, version/header parsing, request correlation and cancellation, Host/Origin and proxy trust, HTTP auth, sessions and quotas |
 | Project · `crates/builder-project/src/**` | Portable schema, migrations, config validation and import | Untrusted parsing and version/size bounds, archive and path validation, import sanitization |
 | Application · `crates/builder-app/src/**` | Project, storage, approval, credential and evidence services and entitlement continuity | Catalog/filesystem writes and recovery, approvals, credential providers and account separation, redaction, retention and audit |

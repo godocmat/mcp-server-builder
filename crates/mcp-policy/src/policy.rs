@@ -240,14 +240,18 @@ impl Policy {
                 }
                 let path = concrete_path(&route.path, PathKind::Http)
                     .map_err(|_| DenyReason::InvalidTarget)?;
-                self.match_adapter_grants(
+                let _ = self.match_adapter_grants(
                     context.capability_id,
                     operation,
                     caller,
                     limits,
                     |target| target.matches_rest_route(&route.origin, route.method, &path),
                     redirected.then_some(route),
-                )?
+                )?;
+                // Route-only matches may include grants whose peer ranges
+                // exclude the eventual connection. Apply their specific limits
+                // only once a concrete peer has been checked.
+                (None, limits)
             }
         };
         let mut ceiling =
