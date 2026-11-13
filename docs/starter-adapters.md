@@ -21,8 +21,8 @@ M6 should bundle the runtime adapter production sources and carry the `webpki-ro
 The host supplies a reviewed absolute path for each mapped `rootRef`. Setup pins the approved directory handle for the lifetime of the adapter. Only a caller-authorized, portable relative path reaches the native open. File results use bounded UTF-8 text. Cancellation discards the result and stops at the next bounded read boundary. A local filesystem operation already inside a system call may complete later. The adapter limits outstanding file and DNS workers to eight each and discards late results. The root and its contents must be controlled by the approved operating-system principal.
 
 - Windows uses local NTFS drive roots and exact stored names. It checks each handle for reparse or special attributes, refuses alternate streams and files with multiple links, and keeps handles without delete sharing through the read.
-- Linux requires `openat2` and genuine procfs on the local ext4, Btrfs, XFS or tmpfs profile. It selects the entry with a metadata-only handle under the pinned root, refuses symlinks and nested mounts, and reopens the same verified single-link regular file for data.
-- Other systems, including macOS, fail closed for a mapped file root. Native filesystem support claims follow the checks below. [Windows relative open](https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntcreatefile) · [Linux pathname lookup](https://docs.kernel.org/filesystems/path-lookup.html)
+- Linux requires `openat2` and genuine procfs on local ext4 or tmpfs. It selects the entry with a metadata-only handle under the pinned root, refuses symlinks, nested mounts and casefolded or encrypted parent directories, and reopens the same verified single-link regular file for data.
+- Unsupported operating systems and filesystem types fail closed for a mapped file root. [Windows relative open](https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntcreatefile) · [Linux pathname lookup](https://docs.kernel.org/filesystems/path-lookup.html)
 
 ## Verification
 
@@ -40,4 +40,4 @@ cargo build --locked -p mcp-builder
 node .github/ci/cli-smoke.mjs
 ```
 
-The isolated Linux native-file harness passed on tmpfs in an offline x64 QEMU guest booting Linux 5.15.167.4-microsoft-standard-WSL2. The harness cross-checked GNU and ran as a static musl executable with procfs. Integrated Linux runtime, native ext4, Btrfs and XFS runs, macOS file support and a live public certificate chain remain unverified. M7 and V2 still own managed credential sources and persisted audit and trace evidence.
+The isolated Linux native-file harness passed on tmpfs in an offline x64 QEMU guest booting Linux 5.15.167.4-microsoft-standard-WSL2. The harness cross-checked GNU and ran as a static musl executable with procfs. The integrated Linux runtime, native ext4 and a live public certificate chain still need verification. macOS file bindings currently fail closed. M7 and V2 still own managed credential sources and persisted audit and trace evidence.
