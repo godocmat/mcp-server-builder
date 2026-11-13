@@ -69,7 +69,9 @@ fn cli(action: &str, root: &Path, scenario: &str, more: &[&str]) -> (Output, Val
 fn review(root: &Path, scenario: &str) -> String {
     let (output, reply) = cli("review", root, scenario, &[]);
     assert!(output.status.success(), "{reply}");
-    assert_eq!(reply["data"]["environment"], json!([]));
+    let environment = reply["data"]["environment"].as_object().unwrap();
+    assert_eq!(environment.len(), 1);
+    assert!(Path::new(environment["SystemRoot"].as_str().unwrap()).is_absolute());
     assert_eq!(reply["data"]["approvedGrants"][0]["id"], "catalog_read");
     reply["data"]["digest"].as_str().unwrap().to_owned()
 }
@@ -118,14 +120,18 @@ fn real_cli_replays_both_revisions_and_rejects_stale_approval() {
     let approval = review(root, "known_item");
     let (output, reply) = cli("replay", root, "known_item", &["--approve", &approval]);
     assert_eq!(output.status.code(), Some(4), "{reply}");
-    assert_eq!(reply["data"]["run"]["outcome"], "assertionFailed");
+    assert_eq!(reply["ok"], false);
+    assert_eq!(reply["error"]["code"], "scenario.assertion_failed");
+    let details = &reply["error"]["details"];
+    assert_eq!(details["run"]["outcome"], "assertionFailed");
+    assert_eq!(details["run"]["runId"], details["runId"]);
     assert_eq!(
-        reply["data"]["run"]["assertions"][0]["path"],
+        details["run"]["assertions"][0]["path"],
         "/structuredContent/name"
     );
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Changed expectation"));
     assert!(
-        reply["data"]["trace"]["entries"]
+        details["trace"]["entries"]
             .as_array()
             .unwrap()
             .iter()
@@ -144,11 +150,8 @@ fn real_cli_replays_both_revisions_and_rejects_stale_approval() {
     save(root, &document);
     let approval = review(root, "known_item");
     let (output, reply) = cli("replay", root, "known_item", &["--approve", &approval]);
-    assert_eq!(output.status.code(), Some(6), "{reply}");
-    assert_eq!(
-        reply["data"]["run"]["diagnostic"]["code"],
-        "fixture.missing"
-    );
+    assert_eq!(output.status.code(), Some(5), "{reply}");
+    assert_eq!(reply["error"]["code"], "fixture.missing");
 }
 
 async fn prepare(
@@ -297,9 +300,19 @@ async fn session_credentials_are_private_and_used_in_evidence_redaction() {
         },
     )
     .await;
-    let review = serde_json::to_string(&prepared.review()).unwrap();
-    assert!(review.contains("catalog_auth"));
-    assert!(!review.contains(CANARY));
+    let review = serde_json::to_value(prepared.review()).unwrap();
+    assert_eq!(
+        review["credentialSources"]["catalog_auth"]["kind"],
+        "session"
+    );
+    assert_eq!(
+        review["credentialTargets"],
+        json!([{
+            "capabilityId": "lookup_item", "bindingId": "catalog_lookup",
+            "origin": "https://catalog.example.test", "references": ["catalog_auth"]
+        }])
+    );
+    assert!(!review.to_string().contains(CANARY));
     let digest = prepared.review().digest;
     let session = prepared
         .approve(digest)
@@ -362,6 +375,40 @@ async fn an_unavailable_explicit_environment_source_fails_after_approval() {
 }
 
 #[tokio::test]
+async fn a_saved_live_mutation_requires_an_explicit_invocation() {
+    let mut document = sample();
+    document["bindings"][0]["method"] = json!("POST");
+    document["policy"]["grants"][0]["operation"] = json!("http.write");
+    document["policy"]["grants"][0]["target"]["method"] = json!("POST");
+    document["scenarios"][0]["mode"] = json!("live");
+    document["scenarios"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("fixtures");
+    let directory = project(&document);
+    let reply = ProjectService::for_user()
+        .prepare_playground(
+            ProjectLocation::Root(directory.path().to_path_buf()),
+            PathBuf::from(BUILDER),
+            PreviewMode::Live {
+                scenario_id: Some("known_item".into()),
+            },
+            PreviewAccess {
+                approved_grant_ids: ["catalog_read".into()].into(),
+                ..PreviewAccess::default()
+            },
+        )
+        .await;
+    let Reply::Failure { error, .. } = reply else {
+        panic!("a mutating live scenario must not prepare");
+    };
+    assert_eq!(
+        serde_json::to_value(error).unwrap()["code"],
+        "scenario.live_mutation_requires_confirmation"
+    );
+}
+
+#[tokio::test]
 async fn timed_out_request_releases_its_socket_and_the_same_preview_completes_a_later_call() {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -416,7 +463,12 @@ async fn timed_out_request_releases_its_socket_and_the_same_preview_completes_a_
         .invoke(&tool("slow"), RequestOptions::default())
         .await
         .unwrap();
-    assert_eq!(timeout.result.outcome, RunOutcome::TimedOut);
+    assert_eq!(
+        timeout.result.outcome,
+        RunOutcome::TimedOut,
+        "{:?}",
+        timeout.result.diagnostic
+    );
     let later = session
         .invoke(&tool("42"), RequestOptions::default())
         .await
@@ -437,6 +489,7 @@ fn accept_before(listener: &TcpListener) -> TcpStream {
     loop {
         match listener.accept() {
             Ok((socket, _)) => {
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();

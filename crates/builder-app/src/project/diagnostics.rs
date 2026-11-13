@@ -293,7 +293,7 @@ impl Message {
             action: Some(self.action.into()),
             field: self.field,
             capability_id: self.capability_id,
-            details: self.details,
+            details: self.details.map(Box::new),
         }
     }
 }

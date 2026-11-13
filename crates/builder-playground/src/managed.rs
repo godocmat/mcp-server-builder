@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use builder_project::{ManifestRevision, ScenarioMode, ScenarioV1, ValidatedManifest};
-use mcp_policy::{Grant, LimitOverrides, Redactor};
+use mcp_policy::{Grant, HttpOrigin, LimitOverrides, Redactor};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -21,7 +21,8 @@ use crate::client::{
 };
 use crate::scenario::ScenarioError;
 use crate::supervision::{
-    LaunchError, LaunchReview, LaunchSpec, SupervisedChild, review_launch, spawn_reviewed,
+    EnvironmentSource, LaunchEnvironment, LaunchError, LaunchReview, LaunchSpec, SupervisedChild,
+    review_launch, spawn_reviewed,
 };
 use crate::trace::TraceSnapshot;
 
@@ -76,6 +77,9 @@ impl PreviewMode {
         if scenario.mode != expected {
             return Err(PreviewError::ScenarioMode);
         }
+        if expected == ScenarioMode::Live && run::is_mutating_call(manifest, &scenario.call) {
+            return Err(PreviewError::LiveMutationReplay);
+        }
         Ok(Some(scenario))
     }
 }
@@ -103,6 +107,7 @@ pub struct PreparedPreview {
     mode: PreviewMode,
     access: Access,
     credentials: CredentialSources,
+    credential_scopes: BTreeMap<String, access::SecretScope>,
     spec: LaunchSpec,
     binding: ManifestRevision,
     review: LaunchReview,
@@ -120,11 +125,12 @@ pub struct PreviewReview<'a> {
     pub executable: &'a Path,
     pub arguments: Vec<&'static str>,
     pub working_directory: &'a Path,
-    pub environment: Vec<&'static str>,
+    pub environment: BTreeMap<String, String>,
     pub approved_grants: Vec<&'a Grant>,
     pub approved_prompt_ids: &'a BTreeSet<String>,
     pub file_roots: BTreeMap<&'a str, &'a Path>,
     pub credential_sources: BTreeMap<&'a str, CredentialReference<'a>>,
+    pub credential_targets: Vec<CredentialTarget<'a>>,
     pub limits: LimitOverrides,
 }
 
@@ -133,6 +139,15 @@ pub struct PreviewReview<'a> {
 pub enum CredentialReference<'a> {
     Environment { name: &'a str },
     Session,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialTarget<'a> {
+    pub capability_id: &'a str,
+    pub binding_id: &'a str,
+    pub origin: &'a HttpOrigin,
+    pub references: Vec<&'a str>,
 }
 
 pub fn prepare_preview(request: PreviewRequest) -> Result<PreparedPreview, PreviewError> {
@@ -147,7 +162,7 @@ pub fn prepare_preview(request: PreviewRequest) -> Result<PreparedPreview, Previ
         return Err(PreviewError::InvalidAccess);
     }
     mode.scenario(&manifest)?;
-    let (access, credentials) = Access::review(access, &mode, &manifest)?;
+    let (access, credentials, projected) = Access::review(access, &mode, &manifest)?;
     // The worker's install directory supplies cwd, never an imported project directory.
     let cwd = worker
         .parent()
@@ -157,7 +172,7 @@ pub fn prepare_preview(request: PreviewRequest) -> Result<PreparedPreview, Previ
         executable: worker,
         cwd,
         args: vec![WORKER_ARG.into()],
-        environment: Vec::new(),
+        environment: worker_environment()?,
     };
     let binding = serde_json::to_vec(&(
         worker::HANDOFF_VERSION,
@@ -175,6 +190,7 @@ pub fn prepare_preview(request: PreviewRequest) -> Result<PreparedPreview, Previ
         mode,
         access,
         credentials,
+        credential_scopes: projected.scopes,
         spec,
         binding,
         review,
@@ -194,7 +210,18 @@ impl PreparedPreview {
             executable: self.review.executable(),
             arguments: vec![WORKER_ARG],
             working_directory: self.review.cwd(),
-            environment: Vec::new(),
+            environment: self
+                .spec
+                .environment
+                .iter()
+                .filter_map(|entry| match &entry.source {
+                    EnvironmentSource::Literal(value) => Some((
+                        entry.name.to_string_lossy().into_owned(),
+                        value.to_string_lossy().into_owned(),
+                    )),
+                    EnvironmentSource::SecretReference(_) => None,
+                })
+                .collect(),
             approved_grants: document
                 .policy
                 .grants
@@ -222,6 +249,24 @@ impl PreparedPreview {
                     (id.as_str(), source)
                 })
                 .collect(),
+            credential_targets: self
+                .credential_scopes
+                .iter()
+                .filter_map(|(capability, scope)| {
+                    let references: Vec<_> = scope
+                        .references
+                        .iter()
+                        .filter(|id| self.access.credential_sources.contains_key(*id))
+                        .map(String::as_str)
+                        .collect();
+                    (!references.is_empty()).then_some(CredentialTarget {
+                        capability_id: capability,
+                        binding_id: &scope.binding_id,
+                        origin: &scope.origin,
+                        references,
+                    })
+                })
+                .collect(),
             limits: self.access.limits,
         }
     }
@@ -233,6 +278,31 @@ impl PreparedPreview {
         }
         Ok(ApprovedPreview(self))
     }
+}
+
+fn worker_environment() -> Result<Vec<LaunchEnvironment>, PreviewError> {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
+
+        // Winsock expands SystemRoot when loading its registered providers.
+        // Obtain it from Windows, independently of the caller's environment.
+        let mut path = vec![0; 32_768];
+        // SAFETY: The vector supplies a writable buffer of the advertised length.
+        let len =
+            unsafe { GetSystemWindowsDirectoryW(path.as_mut_ptr(), path.len() as u32) } as usize;
+        if len == 0 || len >= path.len() {
+            return Err(PreviewError::WorkerUnavailable);
+        }
+        Ok(vec![LaunchEnvironment {
+            name: "SystemRoot".into(),
+            source: EnvironmentSource::Literal(OsString::from_wide(&path[..len])),
+        }])
+    }
+    #[cfg(not(windows))]
+    Ok(Vec::new())
 }
 
 pub struct ApprovedPreview(PreparedPreview);
@@ -267,17 +337,18 @@ impl ApprovedPreview {
             })
             .await
             .map_err(|_| PreviewError::WorkerTask)??;
-        let client = connect_worker(
-            &mut child,
-            &plan.manifest,
-            &plan.mode,
-            &plan.access,
-            plan.credentials,
-            scenario.as_ref(),
-            options,
-            cancellation,
-        )
-        .await;
+        let paths = scenario
+            .as_ref()
+            .and_then(|item| item.sensitive_paths.as_deref())
+            .unwrap_or_default();
+        let worker = WorkerInput {
+            manifest: &plan.manifest,
+            mode: &plan.mode,
+            access: &plan.access,
+            sources: plan.credentials,
+            sensitive_paths: paths,
+        };
+        let client = connect_worker(&mut child, worker, options, cancellation).await;
         let (client, redactor) = match client {
             Ok(connected) => connected,
             Err(error) => {
@@ -301,13 +372,17 @@ impl ApprovedPreview {
     }
 }
 
+struct WorkerInput<'a> {
+    manifest: &'a ValidatedManifest,
+    mode: &'a PreviewMode,
+    access: &'a Access,
+    sources: CredentialSources,
+    sensitive_paths: &'a [String],
+}
+
 async fn connect_worker(
     child: &mut SupervisedChild,
-    manifest: &ValidatedManifest,
-    mode: &PreviewMode,
-    access: &Access,
-    sources: CredentialSources,
-    scenario: Option<&ScenarioV1>,
+    worker: WorkerInput<'_>,
     options: PreviewOptions,
     cancellation: &CancellationToken,
 ) -> Result<(StdioClient, Arc<Redactor>), PreviewError> {
@@ -317,17 +392,14 @@ async fn connect_worker(
     if cancellation.is_cancelled() {
         return Err(PreviewError::Cancelled);
     }
-    let values = access::resolve_values(sources)?;
-    let paths = scenario
-        .and_then(|item| item.sensitive_paths.as_deref())
-        .unwrap_or_default();
-    let redactor = access::redactor(&values, paths)?;
+    let values = access::resolve_values(worker.sources)?;
+    let redactor = access::redactor(&values, worker.sensitive_paths)?;
     worker::handoff(
         &mut stdin,
         &mut stdout,
-        manifest,
-        mode,
-        access,
+        worker.manifest,
+        worker.mode,
+        worker.access,
         values,
         cancellation,
     )
@@ -365,7 +437,7 @@ impl ManagedSession {
 
     pub async fn discover(&self, mut options: RequestOptions) -> Result<Discovery, PreviewError> {
         options.redactor = None;
-        Ok(self.client.discover(options).await?)
+        self.client.discover(options).await.map_err(Into::into)
     }
 
     pub fn trace(&self) -> TraceSnapshot {
@@ -388,6 +460,7 @@ pub enum PreviewError {
     ManifestChanged,
     WorkerUnavailable,
     ScenarioMode,
+    LiveMutationReplay,
     ScenarioRequired,
     Scenario(ScenarioError),
     FileRootUnavailable,
@@ -402,12 +475,20 @@ pub enum PreviewError {
 }
 
 impl PreviewError {
+    pub fn correlation_id(&self) -> Option<Uuid> {
+        match self {
+            Self::Client(error) => Some(error.correlation_id),
+            _ => None,
+        }
+    }
+
     pub fn code(&self) -> &'static str {
         match self {
             Self::InvalidAccess => "playground.invalid_access",
             Self::ApprovalRequired | Self::ManifestChanged => "policy.approval_required",
             Self::WorkerUnavailable => "playground.launch_failed",
             Self::ScenarioMode => "scenario.mode_mismatch",
+            Self::LiveMutationReplay => "scenario.live_mutation_requires_confirmation",
             Self::ScenarioRequired => "scenario.required",
             Self::Scenario(error) => error.code(),
             Self::FileRootUnavailable => "adapter.file_root_unavailable",
@@ -431,6 +512,7 @@ impl PreviewError {
             }
             Self::WorkerUnavailable => "The installed preview worker could not be located.",
             Self::ScenarioMode => "Select the execution mode saved in this scenario.",
+            Self::LiveMutationReplay => "Use a reviewed live invocation for writes.",
             Self::ScenarioRequired => "Select a scenario during launch review before replaying it.",
             Self::Scenario(_) => "Check the selected scenario and its fixtures.",
             Self::FileRootUnavailable => "Check the approved local file root and review it again.",

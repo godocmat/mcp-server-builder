@@ -32,9 +32,9 @@ pub fn workspace_smoke(request: SmokeRequest) -> Reply<SmokeStatus> {
                 action: Some("Use a supported workspace smoke contract version.".into()),
                 field: Some("/contractVersion".into()),
                 capability_id: None,
-                details: Some(DiagnosticDetails::SupportedVersions {
+                details: Some(Box::new(DiagnosticDetails::SupportedVersions {
                     supported_versions: vec![SMOKE_CONTRACT_VERSION],
-                }),
+                })),
             },
             diagnostics: vec![],
         };

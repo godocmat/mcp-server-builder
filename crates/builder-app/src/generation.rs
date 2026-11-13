@@ -145,6 +145,6 @@ fn diagnostic(error: ExportError) -> Diagnostic {
         action: Some(action.into()),
         field: None,
         capability_id: None,
-        details,
+        details: details.map(Box::new),
     }
 }

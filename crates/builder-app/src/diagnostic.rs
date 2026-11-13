@@ -103,6 +103,7 @@ pub enum DiagnosticDetails {
     ExportConflicts {
         conflicts: Vec<builder_generator::ExportConflict>,
     },
+    PlaygroundRun(Box<crate::playground::PlaygroundRunDetails>),
 }
 
 #[derive(Debug, Serialize)]
@@ -119,5 +120,5 @@ pub struct Diagnostic {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capability_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<DiagnosticDetails>,
+    pub details: Option<Box<DiagnosticDetails>>,
 }

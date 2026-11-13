@@ -389,11 +389,6 @@ async fn changed_inputs_and_missing_credentials_have_no_child_side_effect() {
     let review = review_launch(&spec, binding()).unwrap();
     let linked = scratch.path().join("additional fixture name.exe");
     fs::hard_link(&executable, &linked).unwrap();
-    assert_eq!(
-        spawn_reviewed(&spec, binding(), review.digest(), never_resolve).err(),
-        Some(LaunchError::ReviewMismatch)
-    );
-    fs::remove_file(linked).unwrap();
     OpenOptions::new()
         .append(true)
         .open(&executable)
@@ -414,10 +409,14 @@ async fn changed_inputs_and_missing_credentials_have_no_child_side_effect() {
     );
     assert!(!cwd.join("observed-eof").exists());
 
+    fs::remove_file(&linked).unwrap();
+    fs::hard_link(&executable, &linked).unwrap();
     let review = review_launch(&spec, binding()).unwrap();
     let mut child = spawn_reviewed(&spec, binding(), review.digest(), |_| {
         assert!(fs::rename(&cwd, scratch.path().join("moved cwd")).is_err());
         assert!(OpenOptions::new().append(true).open(&executable).is_err());
+        assert!(OpenOptions::new().append(true).open(&linked).is_err());
+        assert!(fs::rename(&linked, scratch.path().join("moved alias.exe")).is_err());
         Some("synthetic".into())
     })
     .unwrap();

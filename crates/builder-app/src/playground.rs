@@ -18,6 +18,14 @@ pub use builder_project::Invocation;
 
 use crate::{Diagnostic, DiagnosticCode, ManifestRevision, Reply, Severity, project_files};
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaygroundRunDetails {
+    pub run_id: uuid::Uuid,
+    pub run: RunResultV1,
+    pub trace: TraceSnapshot,
+}
+
 pub struct PreparedProjectPreview {
     preview: PreparedPreview,
     root: PathBuf,
@@ -82,7 +90,7 @@ pub fn failure_reply<T>(error: PreviewError) -> Reply<T> {
             code: DiagnosticCode::Playground(error.code()),
             message: error.message().into(),
             severity: Severity::Error,
-            correlation_id: uuid::Uuid::new_v4(),
+            correlation_id: error.correlation_id().unwrap_or_else(uuid::Uuid::new_v4),
             action: None,
             field: None,
             capability_id: None,

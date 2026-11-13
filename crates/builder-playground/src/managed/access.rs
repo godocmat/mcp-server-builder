@@ -68,7 +68,7 @@ impl Access {
         input: PreviewAccess,
         mode: &PreviewMode,
         manifest: &ValidatedManifest,
-    ) -> Result<(Self, CredentialSources), PreviewError> {
+    ) -> Result<(Self, CredentialSources, ProjectedAccess), PreviewError> {
         if mode.is_fixture() && !(input.file_roots.is_empty() && input.credentials.is_empty()) {
             return Err(PreviewError::InvalidAccess);
         }
@@ -102,8 +102,8 @@ impl Access {
             limits: input.limits,
         };
         let bindings = builder_project::runtime_bindings(manifest);
-        access.project(manifest, &bindings, mode, super::OPERATOR)?;
-        Ok((access, input.credentials))
+        let projected = access.project(manifest, &bindings, mode)?;
+        Ok((access, input.credentials, projected))
     }
 
     pub(super) fn project(
@@ -111,7 +111,6 @@ impl Access {
         manifest: &ValidatedManifest,
         bindings: &BTreeMap<String, StarterBinding>,
         mode: &PreviewMode,
-        operator: &str,
     ) -> Result<ProjectedAccess, PreviewError> {
         let document = manifest.document();
         let definition = builder_project::runtime_definition(manifest);
@@ -186,7 +185,7 @@ impl Access {
                 approved_prompt_ids: self.prompt_ids.clone(),
                 caller_grants: vec![CallerGrant {
                     identity: CallerIdentity::Local {
-                        operator: operator.into(),
+                        operator: super::OPERATOR.into(),
                     },
                     capability_ids,
                     grant_ids: self.grant_ids.clone(),
@@ -251,7 +250,7 @@ pub(super) fn resolve_values(sources: CredentialSources) -> Result<CredentialVal
             };
             Ok((reference, value))
         })
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_, PreviewError>>()?;
     check_value_sizes(&credentials)?;
     Ok(credentials)
 }
@@ -288,9 +287,9 @@ pub(super) struct ProjectedAccess {
 }
 
 pub(super) struct SecretScope {
-    binding_id: String,
-    origin: HttpOrigin,
-    references: BTreeSet<String>,
+    pub(super) binding_id: String,
+    pub(super) origin: HttpOrigin,
+    pub(super) references: BTreeSet<String>,
 }
 
 struct ScopedSecrets {
@@ -320,5 +319,85 @@ impl SecretResolver for ScopedSecrets {
                 .cloned()
                 .ok_or(SecretError::Missing)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn credential_lookup_requires_the_reviewed_scope() {
+        let project_id = Uuid::new_v4();
+        let origin: HttpOrigin = "https://catalog.example.test".parse().unwrap();
+        let alternate = "https://another.example.test".parse().unwrap();
+        let principal = Principal::Local {
+            operator: super::super::OPERATOR,
+        };
+        let foreign = Principal::Local {
+            operator: "another-local-context",
+        };
+        let resolver = ScopedSecrets {
+            project_id,
+            scopes: [(
+                "tool".into(),
+                SecretScope {
+                    binding_id: "binding".into(),
+                    origin: origin.clone(),
+                    references: ["key".into(), "absent".into()].into(),
+                },
+            )]
+            .into(),
+            credentials: [("key".into(), Zeroizing::new("fixture-only".into()))].into(),
+        };
+        let request = || SecretRequest {
+            project_id,
+            principal: &principal,
+            capability_id: "tool",
+            binding_id: "binding",
+            origin: &origin,
+            reference: "key",
+        };
+        assert!(resolver.resolve(request()).await.is_ok());
+        assert!(matches!(
+            resolver
+                .resolve(SecretRequest {
+                    reference: "absent",
+                    ..request()
+                })
+                .await,
+            Err(SecretError::Missing)
+        ));
+        for denied in [
+            SecretRequest {
+                project_id: Uuid::new_v4(),
+                ..request()
+            },
+            SecretRequest {
+                principal: &foreign,
+                ..request()
+            },
+            SecretRequest {
+                capability_id: "other",
+                ..request()
+            },
+            SecretRequest {
+                binding_id: "other",
+                ..request()
+            },
+            SecretRequest {
+                origin: &alternate,
+                ..request()
+            },
+            SecretRequest {
+                reference: "other",
+                ..request()
+            },
+        ] {
+            assert!(matches!(
+                resolver.resolve(denied).await,
+                Err(SecretError::Unavailable)
+            ));
+        }
     }
 }

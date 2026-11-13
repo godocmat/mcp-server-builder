@@ -4,11 +4,14 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use builder_app::playground::{
-    CancellationToken, PreviewAccess, PreviewError, PreviewMode, PreviewOptions,
-    ProtocolPreference, RequestOptions, RunOutcome, RunResultV1, TraceSnapshot, failure_reply,
-    serve_worker,
+    CancellationToken, PlaygroundRunDetails, PreviewAccess, PreviewError, PreviewMode,
+    PreviewOptions, ProtocolPreference, RequestOptions, RunOutcome, RunResultV1, TraceSnapshot,
+    failure_reply, serve_worker,
 };
-use builder_app::{DiagnosticCode, ManifestRevision, ProjectLocation, ProjectService, Reply};
+use builder_app::{
+    Diagnostic, DiagnosticCode, DiagnosticDetails, ManifestRevision, ProjectLocation,
+    ProjectService, Reply, Severity,
+};
 use clap::{Args, Subcommand, ValueEnum};
 use serde::Serialize;
 
@@ -82,6 +85,9 @@ pub fn run(action: Action, json: bool) -> io::Result<ExitCode> {
 }
 
 pub fn worker() -> ExitCode {
+    std::panic::set_hook(Box::new(|_| {
+        let _ = writeln!(io::stderr().lock(), "playground.worker_failed");
+    }));
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -151,7 +157,9 @@ async fn execute(action: Action, json: bool) -> io::Result<ExitCode> {
                         review.working_directory.display()
                     )?;
                     writeln!(output, "Manifest revision  {}", review.manifest_revision)?;
-                    writeln!(output, "Environment  cleared")?;
+                    for (name, value) in &review.environment {
+                        writeln!(output, "Environment  {name}={value}")?;
+                    }
                     writeln!(output, "Scenario  {}", fixture.scenario)?;
                     for grant in &review.approved_grants {
                         writeln!(output, "Grant  {}", serde_json::to_string(grant)?)?;
@@ -205,19 +213,69 @@ async fn execute(action: Action, json: bool) -> io::Result<ExitCode> {
                     })
                     .await;
                 let trace = session.trace();
-                session.stop().await?;
-                Ok::<_, PreviewError>(ReplayResult {
+                let stop_error = session.stop().await.err();
+                let data = ReplayResult {
                     run: run?.result,
                     trace,
-                })
+                };
+                Ok::<_, PreviewError>((data, stop_error))
             }
             .await;
             signal.abort();
-            let data = match operation {
+            let (data, stop_error) = match operation {
                 Ok(data) => data,
                 Err(error) => return write_error(command, failure_reply(error), json),
             };
-            let exit = run_exit(data.run.outcome);
+            let failure = stop_error
+                .as_ref()
+                .map(|error| (error.code(), error.message()))
+                .or_else(|| {
+                    data.run
+                        .diagnostic
+                        .as_ref()
+                        .map(|diagnostic| (diagnostic.code, diagnostic.message))
+                });
+            if let Some((code, message)) = failure {
+                let status = exit_code(code);
+                if !json {
+                    let mut stderr = io::stderr().lock();
+                    writeln!(stderr, "{message} ({code})")?;
+                    for assertion in data.run.assertions.iter().filter(|item| !item.passed) {
+                        if let Some(path) = &assertion.path {
+                            writeln!(
+                                stderr,
+                                "Assertion {} differs at {path}.",
+                                assertion.index + 1
+                            )?;
+                        } else {
+                            writeln!(stderr, "Assertion {} failed.", assertion.index + 1)?;
+                        }
+                    }
+                    return Ok(status);
+                }
+                let reply = Reply::<()>::Failure {
+                    error: Diagnostic {
+                        code: DiagnosticCode::Playground(code),
+                        message: message.into(),
+                        severity: Severity::Error,
+                        correlation_id: data.run.correlation_id,
+                        action: None,
+                        field: None,
+                        capability_id: None,
+                        details: Some(Box::new(DiagnosticDetails::PlaygroundRun(Box::new(
+                            PlaygroundRunDetails {
+                                run_id: data.run.run_id,
+                                run: data.run,
+                                trace: data.trace,
+                            },
+                        )))),
+                    },
+                    diagnostics: vec![],
+                };
+                write_reply(command, &reply, true, |_| Ok(()))?;
+                return Ok(status);
+            }
+            debug_assert_eq!(data.run.outcome, RunOutcome::Passed);
             write_reply(
                 command,
                 &Reply::Success {
@@ -226,27 +284,14 @@ async fn execute(action: Action, json: bool) -> io::Result<ExitCode> {
                 },
                 json,
                 |data| {
-                    let mut output = io::stdout().lock();
-                    if let Some(diagnostic) = &data.run.diagnostic {
-                        writeln!(output, "{} ({})", diagnostic.message, diagnostic.code)?;
-                    } else {
-                        writeln!(output, "Scenario passed in {} ms.", data.run.duration_ms)?;
-                    }
-                    for assertion in data.run.assertions.iter().filter(|item| !item.passed) {
-                        if let Some(path) = &assertion.path {
-                            writeln!(
-                                output,
-                                "Assertion {} differs at {path}.",
-                                assertion.index + 1
-                            )?;
-                        } else {
-                            writeln!(output, "Assertion {} failed.", assertion.index + 1)?;
-                        }
-                    }
-                    Ok(())
+                    writeln!(
+                        io::stdout().lock(),
+                        "Scenario passed in {} ms.",
+                        data.run.duration_ms
+                    )
                 },
             )?;
-            Ok(exit)
+            Ok(ExitCode::SUCCESS)
         }
     }
 }
@@ -257,35 +302,41 @@ fn write_error(command: &'static str, reply: Reply<()>, json: bool) -> io::Resul
         unreachable!("only failures enter this writer")
     };
     let status = match error.code {
-        Code::Playground("policy.approval_required") => 3,
-        Code::Playground("run.cancelled") => 130,
-        Code::Playground(
-            "runtime.timeout" | "playground.handoff_failed" | "playground.stop_failed",
-        ) => 5,
-        Code::Playground(
-            "playground.invalid_access"
-            | "playground.invalid_launch"
-            | "scenario.not_found"
-            | "scenario.mode_mismatch"
-            | "scenario.live_requires_opt_in",
-        )
-        | Code::ProjectInvalid
-        | Code::ProjectUnsafePath
-        | Code::ProjectUnsupportedSchema => 2,
-        _ => 6,
+        Code::Playground(code) => exit_code(code),
+        Code::ProjectInvalid | Code::ProjectUnsafePath | Code::ProjectUnsupportedSchema => {
+            ExitCode::from(2)
+        }
+        Code::InternalError => ExitCode::FAILURE,
+        _ => ExitCode::from(6),
     };
     write_reply(command, &reply, json, |_| Ok(()))?;
-    Ok(ExitCode::from(status))
+    Ok(status)
 }
 
-fn run_exit(outcome: RunOutcome) -> ExitCode {
-    ExitCode::from(match outcome {
-        RunOutcome::Passed => 0,
-        RunOutcome::Invalid => 2,
-        RunOutcome::Denied => 3,
-        RunOutcome::AssertionFailed => 4,
-        RunOutcome::TimedOut => 5,
-        RunOutcome::Failed => 6,
-        RunOutcome::Cancelled => 130,
+fn exit_code(code: &str) -> ExitCode {
+    ExitCode::from(match code {
+        "input.invalid"
+        | "mcp.unknown_tool"
+        | "mcp.unknown_resource"
+        | "mcp.unknown_prompt"
+        | "playground.invalid_access"
+        | "playground.invalid_launch"
+        | "scenario.required"
+        | "scenario.invalid"
+        | "scenario.not_found"
+        | "scenario.mode_mismatch"
+        | "scenario.live_requires_opt_in"
+        | "credential.invalid" => 2,
+        "policy.denied"
+        | "policy.approval_required"
+        | "auth.required"
+        | "auth.insufficient_scope" => 3,
+        "scenario.assertion_failed" => 4,
+        "credential.missing"
+        | "credential.unavailable"
+        | "adapter.file_root_unavailable"
+        | "playground.launch_unsupported" => 6,
+        "run.cancelled" => 130,
+        _ => 5,
     })
 }

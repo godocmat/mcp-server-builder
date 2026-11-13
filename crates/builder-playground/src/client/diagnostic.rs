@@ -171,13 +171,7 @@ impl ClientError {
             "credential.invalid" => ErrorKind::CredentialInvalid,
             "run.cancelled" => ErrorKind::Cancelled,
             "runtime.timeout" => ErrorKind::TimedOut,
-            "fixture.missing" => {
-                return Some(Self {
-                    code: "fixture.missing",
-                    message: "The scenario has no fixture for the requested target.",
-                    correlation_id,
-                });
-            }
+            "fixture.missing" => ErrorKind::FixtureMissing,
             _ => return None,
         };
         let runtime_error = RuntimeError {

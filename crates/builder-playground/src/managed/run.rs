@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use builder_project::{Capability, Invocation, ValidatedManifest};
 use mcp_policy::{Effect, ExecutionLimits, Operation};
+use mcp_runtime::bindings::StarterBinding;
 use serde::Serialize;
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -140,7 +141,7 @@ impl ManagedSession {
             redact_result(
                 value,
                 &self.redactor,
-                ExecutionLimits::MAX_INPUT_BYTES as usize,
+                ExecutionLimits::MAX_OUTPUT_BYTES as usize,
             )
             .ok()
         });
@@ -190,6 +191,27 @@ pub(super) fn write_tools(
             _ => None,
         })
         .collect()
+}
+
+pub(super) fn is_mutating_call(manifest: &ValidatedManifest, call: &Invocation) -> bool {
+    let Invocation::Tool { name, .. } = call else {
+        return false;
+    };
+    let document = manifest.document();
+    let Some(tool) = document
+        .capabilities
+        .iter()
+        .find_map(|capability| match capability {
+            Capability::Tool(tool) if &tool.name == name => Some(tool),
+            _ => None,
+        })
+    else {
+        return false;
+    };
+    matches!(
+        builder_project::runtime_bindings(manifest).get(&tool.binding_id),
+        Some(StarterBinding::Rest(binding)) if !binding.method.is_read()
+    )
 }
 
 fn scenario_message(code: &str) -> &'static str {

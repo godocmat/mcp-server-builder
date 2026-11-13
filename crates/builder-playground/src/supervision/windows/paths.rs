@@ -250,8 +250,8 @@ fn open_component(path: &[u16], directory: bool, volume: bool) -> io::Result<Fil
     options.custom_flags(
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
     );
-    // Exclude writing and deletion while the handles are held. The volume root is
-    // reached by GUID and is a stable namespace anchor.
+    // Exclude writing and deletion on the opened file, including through other NTFS
+    // names for the same file. The volume root is reached by GUID.
     options.share_mode(if volume {
         FILE_SHARE_READ | FILE_SHARE_WRITE
     } else {
@@ -266,7 +266,6 @@ fn open_component(path: &[u16], directory: bool, volume: bool) -> io::Result<Fil
     let info = file_info(&file)?;
     if info.dwFileAttributes & UNSUPPORTED_ATTRIBUTES != 0
         || directory != (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0)
-        || (!directory && info.nNumberOfLinks != 1)
     {
         return Err(invalid_data());
     }

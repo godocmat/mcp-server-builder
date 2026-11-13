@@ -162,9 +162,7 @@ async fn read_runtime(reader: &mut (impl AsyncRead + Unpin)) -> Result<Runtime, 
         serde_json::from_slice::<CredentialValues>(&values).map_err(|_| PreviewError::Handoff)?;
     drop(values);
     let bindings = builder_project::runtime_bindings(&manifest);
-    let projected = setup
-        .access
-        .project(&manifest, &bindings, &setup.mode, OPERATOR)?;
+    let projected = setup.access.project(&manifest, &bindings, &setup.mode)?;
     if let PreviewMode::Fixture { scenario_id } = setup.mode {
         if !credentials.is_empty() {
             return Err(PreviewError::Handoff);
@@ -216,7 +214,7 @@ mod tests {
         use tokio::io::{AsyncBufReadExt, BufReader};
 
         let manifest = parse_manifest(include_bytes!(
-            "../../../../builder-project/tests/fixtures/catalog-v1.json"
+            "../../../builder-project/tests/fixtures/catalog-v1.json"
         ))
         .unwrap();
         let access = Access {
