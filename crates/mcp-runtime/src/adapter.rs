@@ -99,10 +99,15 @@ pub struct AdapterContext<'a> {
     pub(crate) timeout_ms: Option<NonZeroU64>,
     pub(crate) requested_limits: LimitOverrides,
     pub(crate) admitted_at: Instant,
-    pub(crate) ceiling: Mutex<ExecutionCeiling>,
+    pub(crate) state: Mutex<TargetState>,
     pub(crate) progress: Option<&'a dyn ProgressSink>,
     pub(crate) progress_state: tokio::sync::Mutex<ProgressState>,
     pub(crate) deadline_changed: tokio::sync::Notify,
+}
+
+pub(crate) struct TargetState {
+    pub(crate) ceiling: ExecutionCeiling,
+    pub(crate) denial: Option<DenyReason>,
 }
 
 #[derive(Default)]
@@ -132,11 +137,14 @@ impl AdapterContext<'_> {
         &self,
         target: &VerifiedTarget<'_>,
     ) -> Result<ExecutionCeiling, DenyReason> {
-        let mut ceiling = self.ceiling.lock().expect("execution ceiling lock");
+        let mut state = self.state.lock().expect("execution target lock");
         if self.cancellation().is_cancelled() {
             return Err(DenyReason::InvalidContext);
         }
-        let permit = self.policy.evaluate(&OperationContext {
+        if let Some(reason) = state.denial {
+            return Err(reason);
+        }
+        let decision = self.policy.evaluate(&OperationContext {
             principal: self.principal,
             capability_id: self.capability_id,
             action: Action::Adapter {
@@ -145,13 +153,24 @@ impl AdapterContext<'_> {
             },
             capability_timeout_ms: self.timeout_ms,
             requested_limits: self.requested_limits,
-            ceiling: Some(*ceiling),
+            ceiling: Some(state.ceiling),
             admitted_at: self.admitted_at,
             now: Instant::now(),
-        })?;
-        *ceiling = permit.ceiling();
-        self.deadline_changed.notify_one();
-        Ok(*ceiling)
+        });
+        match decision {
+            Ok(permit) => {
+                let next = permit.ceiling();
+                if next.deadline < state.ceiling.deadline {
+                    self.deadline_changed.notify_one();
+                }
+                state.ceiling = next;
+            }
+            Err(reason) => {
+                state.denial = Some(reason);
+                return Err(reason);
+            }
+        }
+        Ok(state.ceiling)
     }
 
     pub async fn report_progress(&self, mut event: Progress) {
@@ -169,6 +188,7 @@ impl AdapterContext<'_> {
         let now = Instant::now();
         if self.cancellation().is_cancelled()
             || now >= self.deadline()
+            || self.recheck_denial().is_some()
             || state.sent >= 32
             || state.last.is_some_and(|(time, previous)| {
                 event.progress <= previous || now.duration_since(time) < Duration::from_millis(50)
@@ -183,6 +203,10 @@ impl AdapterContext<'_> {
     }
 
     pub(crate) fn current_ceiling(&self) -> ExecutionCeiling {
-        *self.ceiling.lock().expect("execution ceiling lock")
+        self.state.lock().expect("execution target lock").ceiling
+    }
+
+    pub(crate) fn recheck_denial(&self) -> Option<DenyReason> {
+        self.state.lock().expect("execution target lock").denial
     }
 }

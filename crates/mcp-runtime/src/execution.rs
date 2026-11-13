@@ -110,3 +110,19 @@ pub(crate) fn serialized_len<T: Serialize + ?Sized>(value: &T, limit: usize) -> 
     serde_json::to_writer(&mut counter, value).ok()?;
     Some(counter.bytes)
 }
+
+/// Bound nested values before passing them to a recursive serializer or validator.
+pub(crate) fn json_depth_is_bounded(value: &serde_json::Value, remaining: usize) -> bool {
+    let Some(depth) = remaining.checked_sub(1) else {
+        return false;
+    };
+    match value {
+        serde_json::Value::Array(items) => {
+            items.iter().all(|item| json_depth_is_bounded(item, depth))
+        }
+        serde_json::Value::Object(fields) => fields
+            .values()
+            .all(|item| json_depth_is_bounded(item, depth)),
+        _ => true,
+    }
+}
