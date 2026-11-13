@@ -416,7 +416,6 @@ dependencies = [
  "fluent-uri",
  "http",
  "ipnet",
- "jsonschema",
  "mcp-policy",
  "mcp-runtime",
  "mime",
@@ -2642,7 +2641,16 @@ dependencies = [
 name = "mcp-runtime"
 version = "0.1.0"
 dependencies = [
+ "fluent-uri",
+ "jsonschema",
  "mcp-policy",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]
@@ -5336,6 +5344,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",
