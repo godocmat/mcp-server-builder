@@ -18,6 +18,10 @@ use crate::{DiagnosticCode, DiagnosticDetails, Reply};
 mod diagnostics;
 use diagnostics::{Failure, Operation};
 
+pub(crate) fn invalid_manifest_reply<T>(error: ManifestError) -> Reply<T> {
+    Operation::new().finish(Err(Failure::manifest(error)))
+}
+
 #[derive(Clone, Debug)]
 pub enum ProjectLocation {
     /// A native path already selected by the operator or passed on the CLI.

@@ -48,6 +48,20 @@ pub enum DiagnosticCode {
     ProjectRecoveryUnavailable,
     #[serde(rename = "project.index_repair_required")]
     ProjectIndexRepairRequired,
+    #[serde(rename = "export.conflict")]
+    ExportConflict,
+    #[serde(rename = "export.input_changed")]
+    ExportInputChanged,
+    #[serde(rename = "export.destination_exists")]
+    ExportDestinationExists,
+    #[serde(rename = "export.unsafe_path")]
+    ExportUnsafePath,
+    #[serde(rename = "export.invalid_previous")]
+    ExportInvalidPrevious,
+    #[serde(rename = "export.invalid_resolution")]
+    ExportInvalidResolution,
+    #[serde(rename = "export.limit")]
+    ExportLimit,
     #[serde(rename = "storage.unavailable")]
     StorageUnavailable,
     #[serde(rename = "storage.durability_unconfirmed")]
@@ -83,6 +97,9 @@ pub enum DiagnosticDetails {
     Recovery {
         current_revision: Option<ManifestRevision>,
         candidates: Vec<RecoveryCandidate>,
+    },
+    ExportConflicts {
+        conflicts: Vec<builder_generator::ExportConflict>,
     },
 }
 

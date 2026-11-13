@@ -2,6 +2,7 @@
 
 mod catalog;
 mod diagnostic;
+mod generation;
 mod local_fs;
 mod project;
 mod project_files;
@@ -10,6 +11,10 @@ mod smoke;
 
 pub use builder_project::{ManifestRevision, ProjectDocument, SchemaVersion};
 pub use diagnostic::{Diagnostic, DiagnosticCode, DiagnosticDetails, Severity};
+pub use generation::{
+    ConflictDecision, ConflictResolution, ExportConflict, FileOwner, GeneratedFile,
+    GenerationRecord, GenerationRequest, GenerationResult, ResolutionSource, generate,
+};
 pub use project::{
     ProjectLocation, ProjectRecovery, ProjectService, ProjectSnapshot, ProjectStatus,
     ProjectSummary, ProjectValidation, project_read_draft, project_validate,
