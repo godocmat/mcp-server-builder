@@ -2,8 +2,8 @@
 //! Keep generated paths portable and publish only through a no-replace rename.
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
 use builder_project::is_portable_path;
@@ -162,7 +162,7 @@ fn write_stage(
     {
         // Flush directory entries bottom-up after all contents have been written.
         for relative in directories.into_iter().rev() {
-            File::open(root.join(relative))
+            fs::File::open(root.join(relative))
                 .and_then(|directory| directory.sync_all())
                 .map_err(storage)?;
         }
@@ -323,7 +323,10 @@ fn absolute_path(path: &Path) -> Result<PathBuf, ExportError> {
     Ok(resolved)
 }
 
-fn read_bounded(file: &File, max_bytes: usize) -> Result<Vec<u8>, ExportError> {
+#[cfg(any(target_os = "linux", windows))]
+fn read_bounded(file: &fs::File, max_bytes: usize) -> Result<Vec<u8>, ExportError> {
+    use std::io::Read;
+
     if file.metadata().map_err(storage)?.len() > max_bytes as u64 {
         return Err(ExportError::InputTooLarge);
     }
