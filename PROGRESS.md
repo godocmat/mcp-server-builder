@@ -1,6 +1,6 @@
 # MCP Server Builder progress
 
-13 November 2026 · M6 standalone generator integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
+18 November 2026 · M8 and M9 integration · [Roadmap](PLAN.md) · [Backlog](TASKS.md) · [Decisions](DECISIONS.md)
 
 Phase 0 is complete. The coordinator reviewed and integrated D5 (`7767057`) on top of the D1–D4 baseline (`780b107`) on `master`. The design selects the portable, runtime, desktop and CLI contracts. Implementation and release tasks own the verification below.
 
@@ -123,12 +123,26 @@ M7 integrated on `master` at `1ed4b27`. The shared application service prepares 
 
 Windows 11 x64 passed 35 M7 tests within the headless workspace suite, including stale approval, changed file roots, canary redaction, a fixture pass and assertion failure, malformed-frame recovery and a live timeout followed by a healthy request on the same connection. The standalone export passed its locked build and 23 tests. Windows desktop compilation passed without launching the app. Native managed launch is currently Windows-only. M8 owns installed desktop and IPC verification, and M9 owns the full CLI workflow. [M7 verification](docs/local-playground.md#verification)
 
+## M8 desktop MVP workflow
+
+The desktop now creates, opens, edits, validates and recovers schema 1 projects. Its editors cover REST tools, file resources and templates, prompts, permissions and saved scenarios. The local playground presents the first-party worker, selected grants, approved file roots and credential references before starting. The export review binds publication to the saved manifest, reviewed previous export and selected destination. [Pilot walkthrough](docs/windows-pilot.md)
+
+The native IPC and Angular implementations landed from separate worktrees. Nine Angular component tests passed. A Tauri mock runtime exercised the IPC allowlist and then drove a real bundled Windows worker through reviewed approval, discovery, fixture replay, redaction and stop. The desktop production build and unsigned per-user installer also passed. Clean installation, native folder pickers, GUI restart and Windows Narrator still require the Windows acceptance VM. [Pilot build and evidence](docs/windows-pilot.md#workstation-evidence)
+
+## M9 CLI MVP workflow
+
+The CLI can list, create, open, validate, save and recover projects, generate standalone Rust and replay one saved fixture or all fixtures in manifest order. The headless run recomputes and checks the reviewed digest. Windows tests verified successful replay, refusal of stale approval, invalid input, policy denial, assertion mismatch, and project recovery with versioned output. Live file mappings and credentials are configured in the desktop's per-review workflow. [CLI commands and exit codes](docs/local-cli.md)
+
+## M10 Windows pilot evidence
+
+The bundled CLI validated and twice replayed the catalog's four scenarios, then generated source that built and passed 23 tests in a separate directory. The generated stdio suite exercises both supported revisions through real pipes. The integrated Windows suite passed 152 Rust tests and the separately enabled IPC worker test. Clippy, formatting, workflow lint and the Angular build passed. Workstation LCOV measured 86.01% for authored Windows Rust and Angular V8 measured 86.47% for TypeScript. The reference-machine benchmark, full security coverage assessment and native GUI-to-CLI pilot remain open. [Results and remaining gates](docs/windows-pilot.md#workstation-evidence)
+
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
 | F2 · Foundation and platform | Record a hosted run on the three named workers, both coverage artifacts per worker, and the native trial outcome for each WebView. [F2 hosted handoff](docs/ci.md#first-hosted-run) |
-| M8–M10 · Pilot owners | Verify the installed worker, launch boundaries and secret canaries through Tauri IPC and the scripted CLI. Record end-to-end recovery, Windows installer and accessibility smoke, benchmark and coverage evidence. [M7 handoff](docs/local-playground.md) |
+| M10 · Pilot owners | Verify the clean Windows install, native WebView and picker behavior, complete GUI-to-CLI workflow, restart recovery and accessibility. Complete the reference performance run and security coverage assessment. [Windows pilot checklist](docs/windows-pilot.md) |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |
 | V3/V4/V10 · OAuth and interoperability | Record actual provider, database and access-token settings, TLS and trust inputs, audience isolation, callback and refresh evidence, client registrations, and real client versions and wire outcomes. |
 | R1/R3 · Deployment and security | Verify DNS/TLS and renewal, both Linux deployment profiles, bounded drain, secret rotation, denial, coverage and clean restore after a failed rollout. |

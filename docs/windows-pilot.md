@@ -24,3 +24,18 @@ cargo build --locked -p mcp-builder
 Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'debug/mcp-builder.exe') -Destination (Join-Path $env:CARGO_TARGET_DIR 'debug/deps/mcp-builder.exe')
 cargo test --locked -p mcp-builder-desktop --features custom-protocol reviewed_fixture_round_trips_through_desktop_ipc_and_real_stdio -- --ignored
 ```
+
+## Workstation evidence
+
+The 18 November 2026 run used Windows 11 Pro x64 build 26200, local NTFS, Rust 1.99.1, Node 24.22.3 and npm 11.19.1. The unsigned NSIS package was built from the M8/M9 implementation at `1759d01`. Its SHA-256 was `a4c2b0c049484b7012568ee6a03a468c3d77c1dbd8e7732df1cd54c5fafc06eb`. The package contains the desktop and the CLI at its root. The desktop bytes match the release binary with Tauri's three-byte NSIS marker applied. The bundled CLI SHA-256 was `d1773f65c4e256e34cfba6fa40cd7f6fad70627d12f590220bd2670a92db89b2`, matching the release build and the CLI used for the catalog and standalone checks.
+
+The headless Rust tests covered stdio and loopback HTTP, both protocol revisions, and the Windows launch and file boundaries. Windows LCOV counted 12,069 of 14,032 executable authored Rust lines under the workspace source directories. That figure excludes test modules, test-only blocks and emitted copies of the runtime. Angular V8 counted 716 of 828 TypeScript lines. This run leaves the separate 90% security coverage gate open. [Coverage rules](traceability.md#coverage-denominators)
+
+The independent benchmark used the generated release build and a local REST fixture on an AMD Ryzen 5 5600X workstation with 12 logical CPUs and about 32 GiB RAM. Each profile completed 30 fresh launches, 200 measured calls and 10 measured standalone stops with zero failures. The raw benchmark file records the fixture, manifest and server hashes with the per-attempt timings. [Performance method](traceability.md#performance-method-and-budgets)
+
+| MCP revision | Discovery p95 | Call p95 | Standalone stop p95 | Idle working set |
+| --- | ---: | ---: | ---: | ---: |
+| 2026-07-28 | 121.04 ms | 1.20 ms | 30.77 ms | 20.83 MiB |
+| 2025-11-25 | 89.44 ms | 1.30 ms | 31.91 ms | 10.49 MiB |
+
+Clean Windows installation, the native GUI-to-CLI workflow, native recovery and Narrator evidence remain pending. Repeat the measurements on the 4 vCPU, 8 GiB reference machine and record explicit managed stop after cancellation there. The desktop application was not launched during workstation verification.
