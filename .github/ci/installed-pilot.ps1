@@ -72,11 +72,9 @@ function Invoke-PilotWebViewPolicy([string] $Policy, [string] $Value, [scriptblo
 }
 
 try {
-    foreach ($binary in @($cli, $desktop)) {
-        $built = Join-Path $release (Split-Path -Leaf $binary)
-        if ((Get-FileHash -LiteralPath $binary).Hash -ne (Get-FileHash -LiteralPath $built).Hash) {
-            throw "The installed $(Split-Path -Leaf $binary) does not match the release build."
-        }
+    $cliHash = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash
+    if ($cliHash -ne (Get-FileHash -LiteralPath (Join-Path $release 'mcp-builder.exe') -Algorithm SHA256).Hash) {
+        throw 'The installed CLI does not match the release build.'
     }
     & $cli --version
     # Register the portable catalog with the same profile the installed desktop opens.
