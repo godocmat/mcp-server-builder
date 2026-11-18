@@ -1,0 +1,53 @@
+name: Windows pilot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/m10-integration]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installed-pilot:
+    name: Installed pilot (windows-2025)
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      AWS_LC_SYS_PREBUILT_NASM: "1"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check Windows tooling
+        run: ./.github/ci/windows-prerequisites.ps1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          architecture: x64
+          package-manager-cache: false
+
+      - name: Install locked desktop dependencies
+        working-directory: apps/desktop
+        run: npm.cmd ci --engine-strict
+
+      - name: Build unsigned pilot from the checked-out commit
+        run: ./apps/desktop/scripts/build-windows-pilot.ps1
+
+      - name: Install, replay, build an export, and uninstall
+        run: ./.github/ci/installed-pilot.ps1
+
+      - name: Verify lockfiles stayed intact
+        run: git diff --exit-code -- Cargo.lock apps/desktop/package-lock.json
