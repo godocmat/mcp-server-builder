@@ -82,9 +82,6 @@ try {
     if (!$registration.ok -or $registration.data.document.name -ne 'Catalog sample') {
         throw 'The installed CLI could not register the reference catalog.'
     }
-    $groups = whoami.exe /groups /fo csv /nh | Out-String
-    $integrity = [regex]::Match($groups, 'S-1-16-\d+').Value
-    Write-Host "Installed desktop launch integrity SID: $integrity"
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $listener.Start()
     try { $port = $listener.LocalEndpoint.Port } finally { $listener.Stop() }
