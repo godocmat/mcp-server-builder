@@ -168,7 +168,9 @@ try {
   await click("Run saved fixture");
   await until("the fixture assertion pass", async () =>
     (await textAt("#preview-result-heading")).includes("Passed"));
-  assert.match(await textAt("app-playground"), /Sample item/);
+  await until("the fixture's redacted result", () => evaluate(() =>
+    document.querySelector('section[aria-labelledby="preview-result-heading"] pre')
+      ?.textContent.includes("Sample item")));
   await until("protocol trace details", () => evaluate(() => {
     const summary = [...document.querySelectorAll("app-playground summary")].find(
       (item) => item.textContent.trim() === "Protocol trace",
@@ -178,9 +180,13 @@ try {
     return true;
   }));
   await click("Refresh trace");
-  await until("tool traffic in the protocol trace", async () =>
-    (await textAt(".trace-list")).includes("tools/call"));
-  assert.ok(!(await textAt("app-playground")).includes(marker), "Synthetic private field reached the UI");
+  await until("the captured tool result in the protocol trace", () => evaluate(() =>
+    [...document.querySelectorAll(".trace-list li > details")].some((entry) =>
+      entry.querySelector("summary")?.textContent.includes("tools/call") &&
+      entry.querySelector("pre")?.textContent.includes("Sample item"))));
+  const markerExposed = await evaluate((value) =>
+    document.querySelector("app-playground")?.textContent.includes(value), marker);
+  assert.equal(markerExposed, false, "Synthetic private field reached the UI");
   await click("Stop server");
   await status("Local server stopped.");
   assert.ok(!stderr.includes(marker), "Synthetic private field reached process stderr");
