@@ -19,8 +19,8 @@ pub use generation::{
 };
 pub use project::{
     ProjectLocation, ProjectRecovery, ProjectService, ProjectSnapshot, ProjectStatus,
-    ProjectSummary, ProjectValidation, project_read_draft, project_read_draft_file, project_validate,
-    project_validate_document, project_validate_root,
+    ProjectSummary, ProjectValidation, project_read_draft, project_read_draft_file,
+    project_validate, project_validate_document, project_validate_root,
 };
 pub use project_files::{RecoveryCandidate, RecoveryKind};
 pub use reply::Reply;

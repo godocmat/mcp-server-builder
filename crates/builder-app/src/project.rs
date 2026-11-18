@@ -159,13 +159,10 @@ impl ProjectService {
 
     /// Inspect the validated manifest without registering or updating the project.
     pub async fn inspect(&self, location: ProjectLocation) -> Reply<ProjectSnapshot> {
-        let result = self
-            .read_location(location)
-            .await
-            .map(|(root, manifest)| {
-                let id = registration_id(&root, manifest.document().project_id);
-                make_snapshot(&root, id, manifest)
-            });
+        let result = self.read_location(location).await.map(|(root, manifest)| {
+            let id = registration_id(&root, manifest.document().project_id);
+            make_snapshot(&root, id, manifest)
+        });
         Operation::new().finish(result)
     }
 

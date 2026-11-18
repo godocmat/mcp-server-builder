@@ -104,6 +104,11 @@ pub enum DiagnosticDetails {
         conflicts: Vec<builder_generator::ExportConflict>,
     },
     PlaygroundRun(Box<crate::playground::PlaygroundRunDetails>),
+    PlaygroundSuite {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<Uuid>,
+        runs: Vec<crate::playground::RunResultV1>,
+    },
 }
 
 #[derive(Debug, Serialize)]
