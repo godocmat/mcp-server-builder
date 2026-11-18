@@ -1,4 +1,4 @@
 import { bootstrapApplication } from "@angular/platform-browser";
-import { WorkspaceSmokeComponent } from "./app/workspace-smoke.component";
+import { WorkbenchComponent } from "./app/workbench.component";
 
-void bootstrapApplication(WorkspaceSmokeComponent);
+void bootstrapApplication(WorkbenchComponent);

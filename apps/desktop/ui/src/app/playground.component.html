@@ -1,0 +1,650 @@
+<section class="panel" aria-labelledby="playground-heading">
+  <div class="panel-heading">
+    <h2 id="playground-heading" tabindex="-1">Local playground</h2>
+    @if (connection()) {
+      <button
+        type="button"
+        class="secondary"
+        [disabled]="phase() === 'stopping'"
+        (click)="stop()"
+      >
+        Stop server
+      </button>
+    }
+  </div>
+  @if (blocked() && phase() === "configure") {
+    <p role="status">
+      Save your edits before preparing a launch from the current revision.
+    </p>
+  }
+  <app-diagnostics [diagnostics]="diagnostics()" />
+  <p class="status" role="status">{{ status() }}</p>
+
+  @if (phase() === "configure" || phase() === "preparing") {
+    <form (submit)="prepare($event)">
+      <fieldset
+        class="plain-fieldset"
+        [disabled]="phase() === 'preparing' || blocked() || selectionBusy()"
+      >
+        <div class="field-pair">
+          <div class="editor-field">
+            <label for="preview-mode">Mode</label>
+            <select id="preview-mode" (change)="setMode($event)">
+              <option value="fixture" [selected]="mode() === 'fixture'">
+                Saved fixture
+              </option>
+              <option value="live" [selected]="mode() === 'live'">
+                Live integrations
+              </option>
+            </select>
+          </div>
+          <div class="editor-field">
+            <label for="preview-protocol">MCP revision</label>
+            <select id="preview-protocol" (change)="setProtocol($event)">
+              <option value="auto" [selected]="protocol() === 'auto'">
+                Automatic
+              </option>
+              <option
+                value="2026-07-28"
+                [selected]="protocol() === '2026-07-28'"
+              >
+                2026-07-28
+              </option>
+              <option
+                value="2025-11-25"
+                [selected]="protocol() === '2025-11-25'"
+              >
+                2025-11-25
+              </option>
+            </select>
+          </div>
+        </div>
+        @if (mode() === "fixture") {
+          <p class="quiet">
+            Fixture mode uses synthetic responses from the saved scenario.
+          </p>
+          @if (fixtureScenarios().length) {
+            <div class="editor-field">
+              <label for="fixture-scenario">Fixture scenario</label>
+              <select id="fixture-scenario" (change)="setFixture($event)">
+                @for (scenario of fixtureScenarios(); track scenario.id) {
+                  <option
+                    [value]="scenario.id"
+                    [selected]="selectedFixture()?.id === scenario.id"
+                  >
+                    {{ scenario.name }}
+                  </option>
+                }
+              </select>
+            </div>
+          } @else {
+            <p>
+              Add and save a fixture scenario in Edit project, or select Live
+              integrations.
+            </p>
+          }
+        } @else {
+          <p class="quiet">
+            Live requests can read approved folders and contact approved
+            services. Write grants can change upstream data.
+          </p>
+        }
+
+        <fieldset class="sub-panel">
+          <legend>Permissions for this launch</legend>
+          @for (grant of snapshot().document.policy.grants; track grant.id) {
+            <label class="check-label">
+              <input
+                type="checkbox"
+                [checked]="grantIds().has(grant.id)"
+                (change)="togglePermission('grant', grant.id, $event)"
+              />
+              <span
+                >{{ grant.id }}
+                <small
+                  >· {{ grant.operation }} · {{ grant.capabilityId }}</small
+                ></span
+              >
+            </label>
+          }
+          @for (prompt of prompts(); track prompt.id) {
+            <label class="check-label">
+              <input
+                type="checkbox"
+                [checked]="promptIds().has(prompt.id)"
+                (change)="togglePermission('prompt', prompt.id, $event)"
+              />
+              <span>{{ prompt.name }} <small>· prompt</small></span>
+            </label>
+          }
+          @if (!snapshot().document.policy.grants.length && !prompts().length) {
+            <p class="quiet">
+              This project has no requested grants or prompts.
+            </p>
+          } @else {
+            <p class="quiet">
+              Select the grants and prompts to enable when you approve the
+              launch.
+            </p>
+          }
+        </fieldset>
+
+        @if (mode() === "live") {
+          @if (rootReferences().length) {
+            <fieldset class="sub-panel">
+              <legend>File roots</legend>
+              @for (ref of rootReferences(); track ref) {
+                <div class="picker-row">
+                  <button
+                    type="button"
+                    class="secondary"
+                    (click)="chooseRoot(ref)"
+                  >
+                    Choose folder for {{ ref }}
+                  </button>
+                  @if (roots().get(ref); as root) {
+                    <span>{{ root.displayPath }}</span>
+                    <button
+                      type="button"
+                      class="quiet-button"
+                      (click)="clearRoot(ref)"
+                    >
+                      Clear {{ ref }}
+                    </button>
+                  }
+                </div>
+              }
+            </fieldset>
+          }
+          @if (snapshot().document.secretRefs.length) {
+            <fieldset class="sub-panel">
+              <legend>Credential sources</legend>
+              @for (ref of snapshot().document.secretRefs; track ref.id) {
+                @let source = credentialSources().get(ref.id);
+                <div class="editor-field">
+                  <label [for]="'secret-source-' + ref.id">{{ ref.id }}</label>
+                  <p class="quiet">{{ ref.purpose }}</p>
+                  <select
+                    [id]="'secret-source-' + ref.id"
+                    (change)="setCredential(ref.id, $event)"
+                  >
+                    <option
+                      value="none"
+                      [selected]="!source || source === 'none'"
+                    >
+                      Unbound
+                    </option>
+                    <option
+                      value="environment"
+                      [selected]="source === 'environment'"
+                    >
+                      Environment variable
+                    </option>
+                    <option value="session" [selected]="source === 'session'">
+                      Session value
+                    </option>
+                  </select>
+                </div>
+                @if (source === "environment") {
+                  <div class="editor-field">
+                    <label [for]="'secret-' + ref.id"
+                      >Environment variable for {{ ref.id }}</label
+                    >
+                    <input
+                      [id]="'secret-' + ref.id"
+                      [name]="'secret-' + ref.id"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                  </div>
+                } @else if (source === "session") {
+                  <div class="editor-field">
+                    <label [for]="'secret-' + ref.id"
+                      >Session value for {{ ref.id }}</label
+                    >
+                    <input
+                      [id]="'secret-' + ref.id"
+                      [name]="'secret-' + ref.id"
+                      type="password"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                  </div>
+                }
+              }
+            </fieldset>
+          }
+        }
+
+        <label class="check-label">
+          <input
+            type="checkbox"
+            [checked]="capturePayloads()"
+            (change)="setCapture($event)"
+          />
+          <span>Include redacted message contents in the protocol trace</span>
+        </label>
+        <button type="submit" [disabled]="!canReview()">Review launch</button>
+      </fieldset>
+    </form>
+  }
+
+  @if (review(); as pending) {
+    @let details = pending.details.summary;
+    <section class="sub-panel" aria-labelledby="preview-review-heading">
+      <h3 id="preview-review-heading">Review before starting</h3>
+      <dl class="key-values">
+        <dt>Mode</dt>
+        <dd>
+          {{
+            pending.mode.kind === "fixture"
+              ? "Saved fixture"
+              : "Live integrations"
+          }}
+          @if (pending.mode.scenarioId; as scenario) {
+            · <code>{{ scenario }}</code>
+          }
+        </dd>
+        <dt>Executable</dt>
+        <dd>
+          <code>{{ details.executable }}</code>
+        </dd>
+        <dt>Arguments</dt>
+        <dd>
+          @for (arg of details.arguments; track $index) {
+            <code class="chip">{{ arg }}</code>
+          } @empty {
+            None
+          }
+        </dd>
+        <dt>Working directory</dt>
+        <dd>
+          <code>{{ details.workingDirectory }}</code>
+        </dd>
+        <dt>Project revision</dt>
+        <dd>
+          <code>{{ details.manifestRevision }}</code>
+        </dd>
+        <dt>Environment</dt>
+        <dd>
+          <pre>{{ details.environment | json }}</pre>
+        </dd>
+        <dt>Limits</dt>
+        <dd>
+          @if (details.limits.timeoutMs; as timeout) {
+            <span>{{ timeout }} ms · </span>
+          }
+          @if (details.limits.maxOutputBytes; as bytes) {
+            <span>{{ bytes }} output bytes</span>
+          }
+          @if (!details.limits.timeoutMs && !details.limits.maxOutputBytes) {
+            Runtime defaults
+          }
+        </dd>
+      </dl>
+
+      <h4>Approved on launch</h4>
+      <ul class="compact-list">
+        @for (grant of details.approvedGrants; track grant.id) {
+          <li>
+            <strong>{{ grant.id }}</strong> · {{ grant.operation }}
+            @if (grant.target.kind === "rest") {
+              <code
+                >{{ grant.target.method }} {{ grant.target.origin
+                }}{{ grant.target.pathTemplate }}</code
+              >
+              @if (grant.target.allowedPeerRanges?.length) {
+                <small
+                  >Peer ranges
+                  {{ grant.target.allowedPeerRanges.join(", ") }}</small
+                >
+              }
+            } @else {
+              <code
+                >{{ grant.target.rootRef
+                }}{{
+                  grant.target.relativePathTemplate
+                    ? "/" + grant.target.relativePathTemplate
+                    : ""
+                }}</code
+              >
+            }
+            @if (grant.limits?.timeoutMs; as timeout) {
+              <small>{{ timeout }} ms</small>
+            }
+            @if (grant.limits?.maxOutputBytes; as bytes) {
+              <small>{{ bytes }} output bytes</small>
+            }
+          </li>
+        }
+        @for (promptId of details.approvedPromptIds; track promptId) {
+          <li>{{ promptId }} · prompt</li>
+        }
+        @if (
+          !details.approvedGrants.length && !details.approvedPromptIds.length
+        ) {
+          <li>No grants or prompts selected.</li>
+        }
+      </ul>
+
+      @if (pending.mode.kind === "live") {
+        <h4>Selected file roots</h4>
+        <pre>{{ details.fileRoots | json }}</pre>
+        <h4>Credential references and destinations</h4>
+        <ul class="compact-list">
+          @for (target of details.credentialTargets; track $index) {
+            <li>
+              {{ target.capabilityId }} · {{ target.origin }}
+              @for (ref of target.references; track ref) {
+                @let source = details.credentialSources[ref];
+                <span class="chip"
+                  >{{ ref }} ·
+                  {{
+                    source?.kind === "environment"
+                      ? source?.name
+                      : source?.kind === "session"
+                        ? "Session value"
+                        : "Unbound"
+                  }}</span
+                >
+              }
+            </li>
+          } @empty {
+            <li>No credential destinations.</li>
+          }
+        </ul>
+      }
+      <div class="button-row">
+        <button type="button" [disabled]="blocked()" (click)="launch()">
+          Approve and start
+        </button>
+        <button type="button" class="secondary" (click)="discardReview()">
+          Cancel launch review
+        </button>
+      </div>
+    </section>
+  }
+
+  @if (operationId(); as id) {
+    <button type="button" class="secondary" (click)="cancel(id)">
+      Cancel start
+    </button>
+  }
+
+  @if (connection(); as active) {
+    <div class="connection-info">
+      <span class="connection-dot"></span> Connected over stdio · MCP
+      {{ active.discovery.protocolRevision }}
+    </div>
+    <details class="sub-panel" open>
+      <summary>Discovered capabilities</summary>
+      <ul class="compact-list discovery">
+        @for (tool of active.discovery.tools; track tool.name) {
+          <li>
+            <span
+              >Tool <strong>{{ tool.name }}</strong></span
+            >
+            @if (tool.description) {
+              <p>{{ tool.description }}</p>
+            }
+            @if (active.mode.kind === "live") {
+              <button
+                type="button"
+                class="quiet-button"
+                (click)="pickInvocation('tools/call', tool.name)"
+              >
+                Use tool {{ tool.name }}
+              </button>
+            }
+          </li>
+        }
+        @for (resource of active.discovery.resources; track resource.uri) {
+          <li>
+            <span
+              >Resource <strong>{{ resource.name }}</strong></span
+            >
+            <code>{{ resource.uri }}</code>
+            @if (active.mode.kind === "live") {
+              <button
+                type="button"
+                class="quiet-button"
+                (click)="pickInvocation('resources/read', resource.uri)"
+              >
+                Use resource {{ resource.name }}
+              </button>
+            }
+          </li>
+        }
+        @for (
+          resource of active.discovery.resourceTemplates;
+          track resource.uriTemplate
+        ) {
+          <li>
+            <span
+              >Resource template <strong>{{ resource.name }}</strong></span
+            >
+            <code>{{ resource.uriTemplate }}</code>
+            @if (active.mode.kind === "live") {
+              <button
+                type="button"
+                class="quiet-button"
+                (click)="pickInvocation('resources/read', resource.uriTemplate)"
+              >
+                Use template {{ resource.name }}
+              </button>
+            }
+          </li>
+        }
+        @for (prompt of active.discovery.prompts; track prompt.name) {
+          <li>
+            <span
+              >Prompt <strong>{{ prompt.name }}</strong></span
+            >
+            @if (prompt.description) {
+              <p>{{ prompt.description }}</p>
+            }
+            @if (active.mode.kind === "live") {
+              <button
+                type="button"
+                class="quiet-button"
+                (click)="pickInvocation('prompts/get', prompt.name)"
+              >
+                Use prompt {{ prompt.name }}
+              </button>
+            }
+          </li>
+        }
+        @if (
+          !active.discovery.tools.length &&
+          !active.discovery.resources.length &&
+          !active.discovery.resourceTemplates.length &&
+          !active.discovery.prompts.length
+        ) {
+          <li>No capabilities are visible with the reviewed permissions.</li>
+        }
+      </ul>
+    </details>
+
+    <fieldset
+      class="sub-panel"
+      [disabled]="runBusy() || phase() === 'stopping'"
+    >
+      <legend>
+        {{
+          active.mode.kind === "fixture"
+            ? "Replay scenario"
+            : "Call a capability"
+        }}
+      </legend>
+      @if (active.mode.kind === "fixture") {
+        <p>
+          Saved fixture <code>{{ active.mode.scenarioId }}</code>
+        </p>
+      } @else {
+        <div class="editor-field">
+          <label for="playground-method">MCP operation</label>
+          <select
+            id="playground-method"
+            [value]="method()"
+            (change)="changeMethod($event)"
+          >
+            <option value="tools/call" [selected]="method() === 'tools/call'">
+              Call a tool
+            </option>
+            <option
+              value="resources/read"
+              [selected]="method() === 'resources/read'"
+            >
+              Read a resource
+            </option>
+            <option value="prompts/get" [selected]="method() === 'prompts/get'">
+              Get a prompt
+            </option>
+          </select>
+        </div>
+        <div class="editor-field">
+          <label for="playground-target">{{
+            method() === "resources/read" ? "Resource URI" : "Capability name"
+          }}</label>
+          <input
+            id="playground-target"
+            [value]="target()"
+            (input)="changeTarget($event)"
+          />
+          @if (method() === "resources/read") {
+            <small
+              >Fill in any placeholders before reading a resource
+              template.</small
+            >
+          }
+        </div>
+        @if (method() !== "resources/read") {
+          <div class="editor-field">
+            <label for="playground-arguments">Arguments (JSON)</label>
+            <textarea
+              id="playground-arguments"
+              rows="4"
+              class="json-input"
+              spellcheck="false"
+              [value]="argumentsText()"
+              (input)="changeArguments($event)"
+            ></textarea>
+          </div>
+        }
+      }
+      <div class="editor-field">
+        <label for="playground-timeout"
+          >Call timeout in ms <span class="quiet">(optional)</span></label
+        >
+        <input
+          id="playground-timeout"
+          inputmode="numeric"
+          [value]="timeout()"
+          (input)="changeTimeout($event)"
+        />
+      </div>
+      <button type="button" (click)="run()">
+        {{
+          active.mode.kind === "fixture"
+            ? "Run saved fixture"
+            : "Run live request"
+        }}
+      </button>
+    </fieldset>
+    @if (runId(); as id) {
+      <button type="button" class="secondary" (click)="cancel(id)">
+        Cancel call
+      </button>
+    }
+    @if (result(); as run) {
+      <section class="sub-panel" aria-labelledby="preview-result-heading">
+        <h3 id="preview-result-heading">
+          {{ outcomeNames[run.result.outcome] }} ·
+          {{ run.result.durationMs }} ms
+        </h3>
+        @if (run.result.diagnostic; as error) {
+          <p>
+            {{ error.message }} <code>{{ error.code }}</code>
+          </p>
+        }
+        @if (run.result.assertions.length) {
+          <ul class="compact-list">
+            @for (assertion of run.result.assertions; track assertion.index) {
+              <li>
+                Assertion {{ assertion.index + 1 }}
+                {{ assertion.passed ? "passed" : "failed" }}
+                @if (assertion.path) {
+                  at <code>{{ assertion.path }}</code>
+                }
+                @if (assertion.code) {
+                  <code>{{ assertion.code }}</code>
+                }
+              </li>
+            }
+          </ul>
+        }
+        @if (run.payload !== undefined) {
+          <details open>
+            <summary>Redacted result</summary>
+            <pre>{{ run.payload | json }}</pre>
+          </details>
+        }
+      </section>
+    }
+    <details class="sub-panel">
+      <summary>Protocol trace</summary>
+      <button
+        type="button"
+        class="secondary"
+        [disabled]="traceBusy() || phase() === 'stopping'"
+        (click)="refreshTrace()"
+      >
+        Refresh trace
+      </button>
+      @if (trace(); as history) {
+        <p>
+          {{ history.summary.entries }} entries
+          @if (history.summary.droppedEntries) {
+            · {{ history.summary.droppedEntries }} omitted
+          }
+          @if (history.summary.truncated) {
+            · trace truncated
+          }
+        </p>
+        <ol class="trace-list">
+          @for (entry of history.entries; track entry.sequence) {
+            <li>
+              <details>
+                <summary>
+                  {{ entry.offsetMs }} ms · {{ entry.direction }} ·
+                  {{ entry.kind }}
+                  @if (entry.method) {
+                    <code>{{ entry.method }}</code>
+                  }
+                  @if (entry.truncated) {
+                    · truncated
+                  }
+                </summary>
+                <dl class="key-values">
+                  <dt>Correlation ID</dt>
+                  <dd>
+                    <code>{{ entry.correlationId }}</code>
+                  </dd>
+                  @if (entry.messageId !== undefined) {
+                    <dt>Message ID</dt>
+                    <dd>{{ entry.messageId }}</dd>
+                  }
+                </dl>
+                @if (entry.payload !== undefined) {
+                  <pre>{{ entry.payload | json }}</pre>
+                }
+              </details>
+            </li>
+          }
+        </ol>
+      } @else {
+        <p class="quiet">Refresh the trace to see messages for this session.</p>
+      }
+    </details>
+  }
+</section>

@@ -1,0 +1,325 @@
+<app-diagnostics
+  [diagnostics]="diagnostics()"
+  [navigateFields]="true"
+  (fieldSelected)="selectDiagnostic($event)"
+/>
+<div class="editor-layout">
+  <nav class="editor-navigation" aria-label="Project configuration">
+    <button
+      type="button"
+      class="nav-button"
+      [attr.aria-current]="view().kind === 'project' ? 'true' : null"
+      (click)="view.set({ kind: 'project' })"
+    >
+      Project details
+    </button>
+    <button
+      type="button"
+      class="nav-button"
+      [attr.aria-current]="view().kind === 'secrets' ? 'true' : null"
+      (click)="view.set({ kind: 'secrets' })"
+    >
+      Secret references
+    </button>
+    <h3>Capabilities</h3>
+    @for (item of project().capabilities; track item.id; let index = $index) {
+      @let current = view();
+      <button
+        type="button"
+        class="nav-button"
+        [attr.aria-current]="
+          current.kind === 'capability' && current.index === index
+            ? 'true'
+            : null
+        "
+        (click)="view.set({ kind: 'capability', index })"
+      >
+        {{ item.name || capabilityLabels[item.kind] }}
+        <small>{{ capabilityLabels[item.kind] }}</small>
+      </button>
+    }
+    <fieldset class="add-menu" [disabled]="busy()">
+      <legend>Add a capability</legend>
+      <button
+        type="button"
+        class="quiet-button"
+        (click)="addCapability('tool')"
+      >
+        REST tool
+      </button>
+      <button
+        type="button"
+        class="quiet-button"
+        (click)="addCapability('resource')"
+      >
+        File resource
+      </button>
+      <button
+        type="button"
+        class="quiet-button"
+        (click)="addCapability('resourceTemplate')"
+      >
+        Resource template
+      </button>
+      <button
+        type="button"
+        class="quiet-button"
+        (click)="addCapability('prompt')"
+      >
+        Prompt
+      </button>
+    </fieldset>
+    <h3>Scenarios</h3>
+    @for (item of project().scenarios; track item.id; let index = $index) {
+      @let current = view();
+      <button
+        type="button"
+        class="nav-button"
+        [attr.aria-current]="
+          current.kind === 'scenario' && current.index === index ? 'true' : null
+        "
+        (click)="view.set({ kind: 'scenario', index })"
+      >
+        {{ item.name || item.id }}
+      </button>
+    }
+    <button
+      type="button"
+      class="quiet-button"
+      [disabled]="busy()"
+      (click)="addScenario()"
+    >
+      Add fixture scenario
+    </button>
+  </nav>
+
+  <div class="editor-body">
+    <fieldset class="plain-fieldset" [disabled]="busy()">
+      @switch (view().kind) {
+        @case ("project") {
+          <h3 id="editor-section-heading" tabindex="-1">Project details</h3>
+          <p class="quiet">
+            Schema {{ project().schemaVersion }} · Local stdio
+          </p>
+          @for (field of projectFields; track field.path) {
+            <app-editor-field
+              [draft]="draft()"
+              [field]="field"
+              [diagnostics]="diagnostics()"
+              (fieldEdited)="changeField($event)"
+            />
+          }
+        }
+        @case ("secrets") {
+          <h3 id="editor-section-heading" tabindex="-1">Secret references</h3>
+          <p class="quiet">
+            Declare reference names here. Set values or environment sources in
+            Playground.
+          </p>
+          @for (group of secrets(); track $index) {
+            <div class="sub-panel">
+              @for (field of group; track field.path) {
+                <app-editor-field
+                  [draft]="draft()"
+                  [field]="field"
+                  [diagnostics]="diagnostics()"
+                  (fieldEdited)="changeField($event)"
+                />
+              }
+              <button
+                type="button"
+                class="quiet-button"
+                (click)="editSecretRows($index)"
+              >
+                Remove reference {{ $index + 1 }}
+              </button>
+            </div>
+          }
+          <button type="button" class="secondary" (click)="editSecretRows()">
+            Add secret reference
+          </button>
+        }
+        @case ("capability") {
+          @if (capabilityState(); as active) {
+            <h3 id="editor-section-heading" tabindex="-1">
+              {{ capabilityLabels[active.capability.kind] }}
+            </h3>
+            <p class="quiet">
+              Capability ID <code>{{ active.capability.id }}</code>
+            </p>
+            @for (field of active.fields; track field.path) {
+              <app-editor-field
+                [draft]="draft()"
+                [field]="field"
+                [diagnostics]="diagnostics()"
+                (fieldEdited)="changeField($event)"
+              />
+            }
+
+            @if (active.capability.kind === "prompt") {
+              <h4>Prompt arguments</h4>
+              @for (group of active.arguments; track $index) {
+                <div class="sub-panel">
+                  @for (field of group; track field.path) {
+                    <app-editor-field
+                      [draft]="draft()"
+                      [field]="field"
+                      [diagnostics]="diagnostics()"
+                      (fieldEdited)="changeField($event)"
+                    />
+                  }
+                  <button
+                    type="button"
+                    class="quiet-button"
+                    (click)="editPromptRows('arguments', $index)"
+                  >
+                    Remove argument {{ $index + 1 }}
+                  </button>
+                </div>
+              }
+              <button
+                type="button"
+                class="secondary"
+                (click)="editPromptRows('arguments')"
+              >
+                Add prompt argument
+              </button>
+              <h4>Prompt messages</h4>
+              @for (group of active.messages; track $index) {
+                <div class="sub-panel">
+                  @for (field of group; track field.path) {
+                    <app-editor-field
+                      [draft]="draft()"
+                      [field]="field"
+                      [diagnostics]="diagnostics()"
+                      (fieldEdited)="changeField($event)"
+                    />
+                  }
+                  <button
+                    type="button"
+                    class="quiet-button"
+                    (click)="editPromptRows('messages', $index)"
+                  >
+                    Remove message {{ $index + 1 }}
+                  </button>
+                </div>
+              }
+              <button
+                type="button"
+                class="secondary"
+                (click)="editPromptRows('messages')"
+              >
+                Add prompt message
+              </button>
+            }
+
+            @if (active.binding; as binding) {
+              <h4>
+                {{
+                  binding.kind === "rest" ? "REST settings" : "File settings"
+                }}
+              </h4>
+              <p class="quiet">
+                Binding ID <code>{{ binding.id }}</code>
+              </p>
+              @for (field of active.bindingFields; track field.path) {
+                <app-editor-field
+                  [draft]="draft()"
+                  [field]="field"
+                  [diagnostics]="diagnostics()"
+                  (fieldEdited)="changeField($event)"
+                />
+              }
+              <h4>Requested permissions</h4>
+              @if (!active.grants.length) {
+                <p class="quiet">
+                  No permissions requested. Adapter access is denied until you
+                  request and approve a grant.
+                </p>
+              }
+              @for (item of active.grants; track item.grant.id) {
+                <fieldset class="sub-panel">
+                  <legend>
+                    {{ item.grant.id }} · {{ item.grant.operation }}
+                  </legend>
+                  @for (field of item.fields; track field.path) {
+                    <app-editor-field
+                      [draft]="draft()"
+                      [field]="field"
+                      [diagnostics]="diagnostics()"
+                      (fieldEdited)="changeField($event)"
+                    />
+                  }
+                  <button
+                    type="button"
+                    class="quiet-button"
+                    (click)="removeGrant(item.index)"
+                  >
+                    Remove grant {{ item.grant.id }}
+                  </button>
+                </fieldset>
+              }
+              <button type="button" class="secondary" (click)="addGrant()">
+                Request a grant from these settings
+              </button>
+            }
+
+            <div class="button-row editor-removal">
+              <button
+                type="button"
+                class="quiet-button danger"
+                (click)="removeCapability()"
+              >
+                Remove capability
+              </button>
+            </div>
+          }
+        }
+        @case ("scenario") {
+          @if (scenarioState(); as active) {
+            <h3 id="editor-section-heading" tabindex="-1">Scenario</h3>
+            <p class="quiet">
+              Scenario ID <code>{{ active.scenario.id }}</code> ·
+              {{ active.scenario.mode }}
+            </p>
+            <div class="editor-field">
+              <label for="scenario-method">Operation</label>
+              <select
+                id="scenario-method"
+                (change)="selectScenarioMethod($event)"
+              >
+                @for (method of methodOptions; track method.value) {
+                  <option
+                    [value]="method.value"
+                    [selected]="method.value === active.scenario.call.method"
+                  >
+                    {{ method.label }}
+                  </option>
+                }
+              </select>
+            </div>
+            @for (field of active.fields; track field.path) {
+              <app-editor-field
+                [draft]="draft()"
+                [field]="field"
+                [diagnostics]="diagnostics()"
+                (fieldEdited)="changeField($event)"
+              />
+            }
+            <div class="button-row editor-removal">
+              <button
+                type="button"
+                class="quiet-button danger"
+                (click)="removeScenario(active.index)"
+              >
+                Remove scenario
+              </button>
+            </div>
+          }
+        }
+      }
+    </fieldset>
+
+    <ng-content />
+  </div>
+</div>

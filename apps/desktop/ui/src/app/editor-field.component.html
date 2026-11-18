@@ -1,0 +1,73 @@
+<div class="editor-field" [class.toggle-field]="field().format === 'toggle'">
+  <label [for]="id()"
+    >{{ field().label }}
+    @if (field().optional) {
+      <span class="quiet">(optional)</span>
+    }
+  </label>
+  @switch (field().format) {
+    @case ("toggle") {
+      <input
+        [id]="id()"
+        type="checkbox"
+        [checked]="checked()"
+        (change)="edit($event)"
+      />
+    }
+    @case ("select") {
+      <select
+        [id]="id()"
+        [value]="text()"
+        [attr.aria-invalid]="error() ? 'true' : null"
+        [attr.aria-describedby]="id() + '-description'"
+        (change)="edit($event)"
+      >
+        @for (choice of field().choices; track choice) {
+          <option [value]="choice" [selected]="choice === text()">
+            {{ choice }}
+          </option>
+        }
+      </select>
+    }
+    @case ("json") {
+      <textarea
+        [id]="id()"
+        class="json-input"
+        rows="5"
+        spellcheck="false"
+        [value]="text()"
+        [attr.aria-invalid]="error() ? 'true' : null"
+        [attr.aria-describedby]="id() + '-description'"
+        (input)="edit($event)"
+      ></textarea>
+    }
+    @case ("longText") {
+      <textarea
+        [id]="id()"
+        rows="3"
+        [value]="text()"
+        [attr.aria-invalid]="error() ? 'true' : null"
+        [attr.aria-describedby]="id() + '-description'"
+        (input)="edit($event)"
+      ></textarea>
+    }
+    @default {
+      <input
+        [id]="id()"
+        [value]="text()"
+        [attr.inputmode]="field().format === 'number' ? 'numeric' : null"
+        [attr.aria-invalid]="error() ? 'true' : null"
+        [attr.aria-describedby]="id() + '-description'"
+        (input)="edit($event)"
+      />
+    }
+  }
+  <div class="field-description" [id]="id() + '-description'">
+    @if (field().help; as help) {
+      <span class="quiet">{{ help }}</span>
+    }
+    @if (error(); as message) {
+      <span class="field-error">{{ message }}</span>
+    }
+  </div>
+</div>

@@ -1,0 +1,159 @@
+<section class="panel" aria-labelledby="export-heading">
+  <h2 id="export-heading" tabindex="-1">Export Rust source</h2>
+  <p class="quiet">
+    Generate a standalone Cargo project from the saved manifest.
+  </p>
+  @if (dirty()) {
+    <p role="status">Save your project edits to review an export.</p>
+  }
+  <app-diagnostics [diagnostics]="diagnostics()" />
+
+  <fieldset class="plain-fieldset" [disabled]="busy() || dirty()">
+    <div class="editor-field">
+      <label for="export-folder-name">New export folder name</label>
+      <input
+        id="export-folder-name"
+        [value]="folderName()"
+        (input)="changeFolderName($event)"
+      />
+    </div>
+    <div class="picker-row">
+      <button type="button" class="secondary" (click)="chooseFolder('parent')">
+        Choose parent folder
+      </button>
+      <span>{{ parent()?.displayPath ?? "No parent folder selected" }}</span>
+    </div>
+    <div class="picker-row">
+      <button
+        type="button"
+        class="secondary"
+        (click)="chooseFolder('previous')"
+      >
+        Choose previous export (optional)
+      </button>
+      @if (previous(); as source) {
+        <span>{{ source.displayPath }}</span>
+        <button type="button" class="quiet-button" (click)="clearPrevious()">
+          Clear previous export
+        </button>
+      }
+    </div>
+    <button
+      type="button"
+      [disabled]="!parent() || !folderName().trim()"
+      (click)="preview()"
+    >
+      Review export
+    </button>
+  </fieldset>
+
+  @if (activePlan(); as plan) {
+    <section
+      class="sub-panel export-review"
+      aria-labelledby="export-review-heading"
+    >
+      <h3 id="export-review-heading">Export review</h3>
+      <p>
+        Destination <code>{{ plan.destinationDisplayPath }}</code>
+      </p>
+      @if (plan.generation; as generation) {
+        <dl class="key-values">
+          <dt>Project schema</dt>
+          <dd>{{ generation.projectSchemaVersion }}</dd>
+          <dt>Runtime</dt>
+          <dd>{{ generation.runtimeVersion }}</dd>
+          <dt>Template</dt>
+          <dd>{{ generation.templateVersion }}</dd>
+          <dt>MCP revisions</dt>
+          <dd>{{ generation.protocolVersions.join(", ") }}</dd>
+        </dl>
+        <details>
+          <summary>{{ generation.files.length }} files</summary>
+          <ul class="file-list">
+            @for (item of generation.files; track item.path) {
+              <li>
+                <code>{{ item.path }}</code> <small>· {{ item.owner }}</small>
+              </li>
+            }
+          </ul>
+        </details>
+      }
+      @if (plan.conflicts.length) {
+        <h4>Files that need a decision</h4>
+        <p>
+          Choose how to handle each changed file. The previous export will
+          remain in its folder.
+        </p>
+        @for (item of plan.conflicts; track item.path; let index = $index) {
+          <div class="editor-field">
+            <label [for]="'export-conflict-' + index"
+              ><code>{{ item.path }}</code></label
+            >
+            <details>
+              <summary>File digests</summary>
+              <dl class="key-values">
+                <dt>Previous</dt>
+                <dd>{{ item.previousDigest ?? "None" }}</dd>
+                <dt>On disk</dt>
+                <dd>{{ item.observedDigest ?? "Missing" }}</dd>
+                <dt>Generated</dt>
+                <dd>{{ item.replacementDigest ?? "None" }}</dd>
+              </dl>
+            </details>
+            <select
+              [id]="'export-conflict-' + index"
+              (change)="chooseDecision(item.path, $event)"
+            >
+              <option value="">Choose a resolution</option>
+              @if (item.canKeep) {
+                <option value="keep">Keep current file</option>
+              }
+              <option value="regenerate">Use generated file</option>
+            </select>
+          </div>
+        }
+      }
+      <h4>Runtime configuration</h4>
+      <p class="quiet">
+        Grants and prompts start disabled. The generated README explains
+        operator configuration.
+      </p>
+      @if (snapshot().document.secretRefs.length) {
+        <p>
+          Secret references:
+          @for (ref of snapshot().document.secretRefs; track ref.id) {
+            <code class="chip">{{ ref.id }}</code>
+          }
+        </p>
+      }
+      <button
+        type="button"
+        [disabled]="!canWrite() || busy()"
+        (click)="write()"
+      >
+        Export Rust source
+      </button>
+    </section>
+  }
+
+  @if (receipt(); as success) {
+    <section class="sub-panel" aria-labelledby="export-complete-heading">
+      <h3 id="export-complete-heading">Export complete</h3>
+      <p>
+        {{ success.generation.files.length }} files were written to
+        <code>{{ success.destinationDisplayPath }}</code>.
+      </p>
+      <p>
+        Open a terminal in that folder and run
+        <code>cargo build --locked</code>. The README covers tests and how to
+        connect an MCP client.
+      </p>
+      <button type="button" class="secondary" (click)="copyCommand()">
+        Copy PowerShell build command
+      </button>
+    </section>
+  }
+  <p class="status" role="status">
+    {{ busy() ? "Working on your export…" : status() }}
+  </p>
+</section>

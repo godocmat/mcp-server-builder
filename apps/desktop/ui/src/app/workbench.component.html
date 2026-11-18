@@ -1,0 +1,321 @@
+<header class="workbench-header">
+  <div class="workbench-title">
+    <span class="app-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+    <h1>MCP Server Builder</h1>
+  </div>
+  <nav class="top-navigation" aria-label="Workspace">
+    <button
+      type="button"
+      class="nav-button"
+      [attr.aria-current]="section() === 'projects' ? 'page' : null"
+      (click)="selectSection('projects')"
+    >
+      Projects
+    </button>
+    @if (snapshot()) {
+      <button
+        type="button"
+        class="nav-button"
+        [attr.aria-current]="section() === 'editor' ? 'page' : null"
+        (click)="selectSection('editor')"
+      >
+        Edit project
+        @if (dirty()) {
+          <span aria-label="Unsaved changes"> •</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="nav-button"
+        [attr.aria-current]="section() === 'playground' ? 'page' : null"
+        (click)="selectSection('playground')"
+      >
+        Playground
+      </button>
+      <button
+        type="button"
+        class="nav-button"
+        [attr.aria-current]="section() === 'export' ? 'page' : null"
+        (click)="selectSection('export')"
+      >
+        Export
+      </button>
+    }
+  </nav>
+</header>
+
+<main>
+  @if (pending()) {
+    <section class="panel notice" aria-labelledby="navigation-confirmation">
+      <h2 id="navigation-confirmation" tabindex="-1">Confirm project change</h2>
+      @if (dirty()) {
+        <p>
+          Continuing will replace the draft open in this window. You can go back
+          to save it first.
+        </p>
+      } @else {
+        <p>Restore the selected revision to the project's manifest?</p>
+      }
+      <div class="button-row">
+        <button type="button" class="secondary" (click)="pending.set(null)">
+          Go back
+        </button>
+        <button type="button" (click)="confirm()">Continue</button>
+      </div>
+    </section>
+  }
+  <p class="status workspace-status" role="status">{{ status() }}</p>
+
+  <section
+    class="panel"
+    [hidden]="section() !== 'projects'"
+    aria-labelledby="projects-heading"
+  >
+    <div class="panel-heading">
+      <h2 id="projects-heading" tabindex="-1">Projects</h2>
+      <div class="button-row">
+        <button
+          type="button"
+          class="secondary"
+          [disabled]="busy() || previewActive() || !!pending()"
+          (click)="openFolder()"
+        >
+          Open folder
+        </button>
+        <button
+          type="button"
+          [disabled]="busy() || previewActive() || !!pending()"
+          (click)="showCreate()"
+        >
+          New project
+        </button>
+      </div>
+    </div>
+    @if (previewActive()) {
+      <p>
+        Stop the local server or cancel its review in Playground to switch
+        projects.
+      </p>
+    }
+    <app-diagnostics
+      [diagnostics]="[...projectDiagnostics(), ...catalogDiagnostics()]"
+    />
+
+    @if (creating()) {
+      <fieldset
+        class="sub-panel"
+        [disabled]="busy() || previewActive() || !!pending()"
+      >
+        <legend>Create a project</legend>
+        <div class="editor-field">
+          <label for="new-project-name">Project name</label>
+          <input
+            id="new-project-name"
+            [value]="newName()"
+            (input)="changeNewName($event)"
+          />
+        </div>
+        <div class="picker-row">
+          <button type="button" class="secondary" (click)="chooseDestination()">
+            Choose project folder
+          </button>
+          <span>{{
+            destination()?.displayPath ?? "No project folder selected"
+          }}</span>
+        </div>
+        <div class="button-row">
+          <button
+            type="button"
+            [disabled]="!destination() || !newName().trim()"
+            (click)="create()"
+          >
+            Create project
+          </button>
+          <button
+            type="button"
+            class="quiet-button"
+            (click)="creating.set(false); destination.set(null)"
+          >
+            Cancel creation
+          </button>
+        </div>
+      </fieldset>
+    }
+
+    @if (projects().length) {
+      <ul class="project-list">
+        @for (project of projects(); track project.registrationId) {
+          <li>
+            <button
+              type="button"
+              class="nav-button project-card"
+              [disabled]="busy() || previewActive() || !!pending()"
+              (click)="openRegistration(project.registrationId)"
+            >
+              <strong>{{ project.name }}</strong>
+              @if (project.status !== "available") {
+                <span class="chip">{{ project.status }}</span>
+              }
+              <span>{{ project.rootDisplayPath }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    } @else if (catalogBusy()) {
+      <p role="status">Loading projects…</p>
+    } @else {
+      <p class="quiet">
+        Create a project or open a folder containing an existing manifest.
+      </p>
+    }
+    <button
+      type="button"
+      class="quiet-button"
+      [disabled]="catalogBusy() || busy()"
+      (click)="refreshProjects()"
+    >
+      Refresh project list
+    </button>
+  </section>
+
+  @if (recovery(); as options) {
+    @if (section() === "projects" || section() === "editor") {
+      <section class="panel notice" aria-labelledby="recovery-heading">
+        <h2 id="recovery-heading">Available recovery files</h2>
+        @if (options.sourceDisplayPath) {
+          <p>
+            <code>{{ options.sourceDisplayPath }}</code>
+          </p>
+        }
+        <ul class="compact-list">
+          @for (candidate of options.candidates; track candidate.path) {
+            <li>
+              <strong>{{
+                candidate.kind === "lastValid"
+                  ? "Last valid revision"
+                  : "Interrupted write"
+              }}</strong>
+              <code>{{ candidate.path }}</code>
+              <small>{{ candidate.revision }}</small>
+              @if (candidate.kind === "lastValid") {
+                <button
+                  class="secondary"
+                  type="button"
+                  [disabled]="busy() || previewActive() || !!pending()"
+                  (click)="restoreBackup(options, candidate)"
+                >
+                  Restore this revision
+                </button>
+              }
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  }
+
+  @for (project of mounted(); track project.registrationId) {
+    @if (draft(); as currentDraft) {
+      <section
+        class="panel"
+        [hidden]="section() !== 'editor'"
+        aria-labelledby="project-heading"
+      >
+        <div class="panel-heading">
+          <div>
+            <h2 id="project-heading" tabindex="-1">
+              {{ currentDraft.document.name || "Project" }}
+            </h2>
+            <p class="path-note">{{ project.rootDisplayPath }}</p>
+            <details class="path-note">
+              <summary>Saved revision</summary>
+              <code>{{ project.revision }}</code>
+            </details>
+          </div>
+          <div class="button-row">
+            <button
+              type="button"
+              class="secondary"
+              [disabled]="busy() || !!pending()"
+              (click)="validate()"
+            >
+              Validate
+            </button>
+            <button
+              type="button"
+              [disabled]="busy() || previewActive() || !dirty() || !!pending()"
+              (click)="save()"
+            >
+              Save project
+            </button>
+          </div>
+        </div>
+        @if (previewActive() && dirty()) {
+          <p>Stop the local server or cancel its review to save this draft.</p>
+        }
+        @if (conflict(); as currentRevision) {
+          <section
+            class="sub-panel notice"
+            aria-labelledby="save-conflict-heading"
+          >
+            <h3 id="save-conflict-heading">The project changed on disk</h3>
+            <p>
+              Your draft is still open. Save a copy or reload the saved
+              revision.
+            </p>
+            <dl class="key-values">
+              <dt>Draft opened from</dt>
+              <dd>
+                <code>{{ project.revision }}</code>
+              </dd>
+              <dt>Saved revision</dt>
+              <dd>
+                <code>{{ currentRevision }}</code>
+              </dd>
+            </dl>
+            <div class="button-row">
+              <button
+                type="button"
+                class="secondary"
+                [disabled]="busy() || previewActive() || !!pending()"
+                (click)="saveDraftCopy()"
+              >
+                Save draft as a copy
+              </button>
+              <button
+                type="button"
+                class="secondary"
+                [disabled]="busy() || previewActive() || !!pending()"
+                (click)="reloadSaved()"
+              >
+                Reload saved revision
+              </button>
+            </div>
+          </section>
+        }
+        <app-project-editor
+          [draft]="currentDraft"
+          [diagnostics]="editorDiagnostics()"
+          [busy]="busy() || !!pending()"
+          (draftChanged)="changeDraft($event)"
+        />
+      </section>
+
+      <app-playground
+        [hidden]="section() !== 'playground'"
+        [snapshot]="project"
+        [blocked]="dirty() || busy()"
+        (activeChange)="previewActive.set($event)"
+      />
+      <app-export-panel
+        [hidden]="section() !== 'export'"
+        [snapshot]="project"
+        [dirty]="dirty() || busy()"
+      />
+    }
+  }
+</main>
+
+<footer class="workbench-footer">
+  <app-workspace-smoke />
+</footer>

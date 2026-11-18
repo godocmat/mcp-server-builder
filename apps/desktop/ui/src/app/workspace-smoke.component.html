@@ -1,9 +1,11 @@
-<main>
-  <h1>MCP Server Builder</h1>
-  <p>Verify that the desktop can reach the shared Rust service.</p>
-
+<div>
   @let current = state();
-  <button type="button" (click)="run()" [disabled]="current.kind === 'running'">
+  <button
+    type="button"
+    class="quiet-button"
+    (click)="run()"
+    [disabled]="current.kind === 'running'"
+  >
     Run workspace check
   </button>
 
@@ -36,4 +38,4 @@
       }
     }
   </div>
-</main>
+</div>
