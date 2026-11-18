@@ -361,7 +361,94 @@ describe("desktop MVP workflow", () => {
     expect(visibleText(fixture)).toContain("Draft saved as a new project.");
   });
 
+  it("removes a capability's grants and retains shared binding validation until its last owner is removed", async () => {
+    const tool = snapshot.document.capabilities.find(
+      ({ kind }) => kind === "tool",
+    )!;
+    const shared: ProjectSnapshot = {
+      ...snapshot,
+      document: {
+        ...snapshot.document,
+        scenarios: [],
+        capabilities: [
+          ...snapshot.document.capabilities,
+          { ...tool, id: "secondary_lookup", name: "secondary_lookup" },
+        ],
+      },
+    };
+    const saves: ProjectDocument[] = [];
+    const { fixture } = await createWorkspace((command, { request }) => {
+      switch (command) {
+        case "project_list":
+          return success([]);
+        case "select_path":
+          return success({ selectionId: "source", displayPath: root });
+        case "project_open":
+          return success(shared);
+        case "project_save": {
+          const { document } = request as { document: ProjectDocument };
+          saves.push(document);
+          return success({ ...shared, document, revision: revisionTwo });
+        }
+        default:
+          throw new Error(command);
+      }
+    });
+    const selectCapability = async (name: string) => {
+      const button = Array.from(
+        (
+          fixture.nativeElement as HTMLElement
+        ).querySelectorAll<HTMLButtonElement>(".editor-navigation button"),
+      ).find(({ firstChild }) => firstChild?.textContent?.trim() === name);
+      expect(button).toBeDefined();
+      button!.click();
+      await fixture.whenStable();
+    };
+
+    await openFolder(fixture);
+    await selectCapability("secondary_lookup");
+    await edit(fixture, "editor-field-/capabilities/4/inputSchema", "{");
+    await selectCapability("lookup_item");
+    await click(fixture, "Remove capability");
+    await click(fixture, "Save project");
+    expect(saves).toEqual([]);
+    await selectCapability("secondary_lookup");
+    expect(
+      get<HTMLTextAreaElement>(
+        fixture,
+        "editor-field-/capabilities/3/inputSchema",
+      ).value,
+    ).toBe("{");
+    await edit(
+      fixture,
+      "editor-field-/capabilities/3/inputSchema",
+      '{"type":"object"}',
+    );
+    await click(fixture, "Save project");
+    expect(saves).toHaveLength(1);
+    expect(saves[0].policy.grants.map(({ id }) => id)).toEqual(["note_read"]);
+    expect(saves[0].bindings.some(({ id }) => id === "catalog_lookup")).toBe(
+      true,
+    );
+    expect(saves[0].capabilities.some(({ id }) => id === "lookup_item")).toBe(
+      false,
+    );
+
+    await selectCapability("secondary_lookup");
+    await click(fixture, "Remove capability");
+    await click(fixture, "Save project");
+    expect(saves).toHaveLength(2);
+    expect(saves[1].bindings.some(({ id }) => id === "catalog_lookup")).toBe(
+      false,
+    );
+    expect(saves[1].policy.grants.map(({ id }) => id)).toEqual(["note_read"]);
+  });
+
   it("reviews a fixture launch before spawning, replays it, and clears transient results on stop", async () => {
+    let approvalAttempts = 0;
+    let startAttempts = 0;
+    const expiredReview =
+      "<strong data-review-untrusted>Review expired</strong>";
     const [grant] = snapshot.document.policy.grants;
     const review: LaunchReview = {
       reviewId: "review",
@@ -437,11 +524,18 @@ describe("desktop MVP workflow", () => {
         case "policy_review":
           return success(review);
         case "policy_approve":
+          if (++approvalAttempts === 1)
+            return failure("policy.approval_required", expiredReview);
           return success({
             approvalId: "approved",
             expiresAt: "2026-11-18T09:05:00Z",
           });
         case "playground_start":
+          if (++startAttempts === 1)
+            return failure(
+              "policy.approval_required",
+              "The launch review is out of date.",
+            );
           return success({ operationId: "start" });
         case "scenario_run":
           return success({ runId: "run" });
@@ -503,6 +597,26 @@ describe("desktop MVP workflow", () => {
 
     await click(fixture, "Review launch");
     await click(fixture, "Approve and start");
+    expect(visibleText(fixture)).toContain("Launch approval failed.");
+    expect(visibleText(fixture)).toContain(expiredReview);
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector(
+        "[data-review-untrusted]",
+      ),
+    ).toBeNull();
+    expect(
+      invoke.mock.calls.some(([command]) => command === "playground_start"),
+    ).toBe(false);
+
+    await click(fixture, "Review launch");
+    await click(fixture, "Approve and start");
+    expect(visibleText(fixture)).toContain("The local server did not start.");
+    expect(invoke.mock.calls.some(([command]) => command === "run_poll")).toBe(
+      false,
+    );
+
+    await click(fixture, "Review launch");
+    await click(fixture, "Approve and start");
     expect(invoke).toHaveBeenCalledWith("policy_approve", {
       request: { reviewId: "review", digest },
     });
@@ -544,7 +658,7 @@ describe("desktop MVP workflow", () => {
       canKeep: false,
     };
     const output: GenerationReceipt = {
-      destinationDisplayPath: String.raw`C:\exports\catalog`,
+      destinationDisplayPath: String.raw`C:\exports\owner's catalog`,
       generation: {
         version: 1,
         projectId: snapshot.document.projectId,
@@ -607,6 +721,15 @@ describe("desktop MVP workflow", () => {
       ),
     ).toBeNull();
 
+    await edit(fixture, "export-folder-name", "catalog again");
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector(
+        "#export-conflict-0",
+      ),
+    ).toBeNull();
+    await click(fixture, "Choose parent folder");
+    await click(fixture, "Choose previous export (optional)");
+    await click(fixture, "Review export");
     await edit(fixture, "export-conflict-0", "regenerate", "change");
     await click(fixture, "Export Rust source");
     expect(invoke).toHaveBeenCalledWith("generation_write", {
@@ -624,6 +747,31 @@ describe("desktop MVP workflow", () => {
       },
     });
     expect(visibleText(fixture)).toContain("Export complete");
+
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Clipboard unavailable"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    try {
+      await click(fixture, "Copy PowerShell build command");
+      expect(writeText).toHaveBeenCalledWith(
+        String.raw`Set-Location -LiteralPath 'C:\exports\owner''s catalog'` +
+          "\ncargo build --locked",
+      );
+      expect(visibleText(fixture)).toContain("Build command copied.");
+      await click(fixture, "Copy PowerShell build command");
+      expect(visibleText(fixture)).toContain(
+        "Copy the folder path and build command",
+      );
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   it("configures file paths and prompt arguments and saves a fixture that exercises the prompt", async () => {

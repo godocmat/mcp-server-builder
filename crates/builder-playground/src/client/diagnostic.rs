@@ -216,3 +216,101 @@ pub(super) enum Failure {
 pub(super) fn tool_diagnostic(result: &rmcp::model::CallToolResult) -> Option<&Value> {
     result.meta.as_ref()?.get(BUILDER_DIAGNOSTIC)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn only_managed_diagnostic_codes_with_valid_shape_keep_their_class() {
+        let operation = Uuid::new_v4();
+        let peer = Uuid::new_v4();
+        const PRIVATE: &str = "peer-diagnostic-private-fd82";
+        for code in [
+            "mcp.unknown_tool",
+            "mcp.unknown_resource",
+            "mcp.unknown_prompt",
+            "input.invalid",
+            "input.invalid_cursor",
+            "policy.denied",
+            "mcp.invalid_output",
+            "runtime.output_limit",
+            "adapter.failed",
+            "credential.missing",
+            "credential.unavailable",
+            "credential.invalid",
+            "run.cancelled",
+            "runtime.timeout",
+            "fixture.missing",
+        ] {
+            let metadata = json!({ "code": code, "correlationId": peer, "message": PRIVATE });
+            let rpc = || {
+                ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    PRIVATE,
+                    Some(json!({ BUILDER_DIAGNOSTIC: metadata })),
+                )
+            };
+            let result = ClientError::rpc(operation, rpc(), true);
+            assert_eq!(result.code(), code);
+            let public = serde_json::to_value(result).unwrap();
+            assert_eq!(public["correlationId"], json!(operation));
+            assert!(!public.to_string().contains(PRIVATE));
+            assert!(!public.to_string().contains(&peer.to_string()));
+            assert!(!result.to_string().contains(PRIVATE));
+            assert_eq!(
+                ClientError::rpc(operation, rpc(), false).code(),
+                "mcp.rpc_error"
+            );
+            assert_eq!(
+                ClientError::tool(operation, Some(&metadata), false).code(),
+                "mcp.tool_error"
+            );
+        }
+        for metadata in [
+            json!({ "code": "policy.denied", "correlationId": "malformed" }),
+            json!({ "code": "peer.custom_error", "correlationId": peer }),
+        ] {
+            assert_eq!(
+                ClientError::tool(operation, Some(&metadata), true).code(),
+                "mcp.tool_error"
+            );
+        }
+    }
+
+    #[test]
+    fn generic_protocol_errors_do_not_expose_peer_messages_or_data() {
+        const PRIVATE: &str = "raw-protocol-message-4a61";
+        let operation = Uuid::new_v4();
+        for (wire, expected) in [
+            (INVALID_FRAME, "transport.invalid_message"),
+            (ErrorCode::INVALID_REQUEST, "transport.invalid_message"),
+            (ErrorCode::PARSE_ERROR, "transport.invalid_message"),
+            (ErrorCode::HEADER_MISMATCH, "transport.invalid_message"),
+            (
+                ErrorCode::UNSUPPORTED_PROTOCOL_VERSION,
+                "mcp.unsupported_protocol",
+            ),
+            (
+                ErrorCode::MISSING_REQUIRED_CLIENT_CAPABILITY,
+                "mcp.unsupported_capability",
+            ),
+            (ErrorCode::INVALID_PARAMS, "input.invalid"),
+            (ErrorCode::METHOD_NOT_FOUND, "mcp.unknown_method"),
+        ] {
+            let error = ErrorData::new(wire, PRIVATE, Some(json!({ "private": PRIVATE })));
+            let result = ClientError::service(operation, ServiceError::McpError(error), false);
+            assert_eq!(result.code(), expected);
+            assert_eq!(result.correlation_id, operation);
+            assert!(!serde_json::to_string(&result).unwrap().contains(PRIVATE));
+        }
+        let error = ServiceError::Cancelled {
+            reason: Some(PRIVATE.into()),
+        };
+        let result = ClientError::service(operation, error, false);
+        assert_eq!(result.code(), "run.cancelled");
+        assert!(!result.to_string().contains(PRIVATE));
+    }
+}

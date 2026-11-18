@@ -195,3 +195,31 @@ pub(crate) async fn on_disk<T: Send + 'static>(
         .await
         .map_err(|_| Fault::internal())?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expired_handles_release_capacity_and_shutdown_invalidates_remaining_handles() {
+        let mut handles = Handles::default();
+        let past = Instant::now() - Duration::from_secs(1);
+        let expired = handles.insert_until("expired review", past).unwrap();
+        let active = handles.insert("active review").unwrap();
+        for _ in 1..MAX_HANDLES {
+            handles.insert("another pending review").unwrap();
+        }
+        assert!(handles.take(expired).is_none());
+        assert_eq!(
+            handles
+                .insert("above the limit")
+                .unwrap_err()
+                .into_diagnostic()
+                .code,
+            DiagnosticCode::InvalidInput
+        );
+        handles.clear();
+        assert!(handles.take(active).is_none());
+        assert!(handles.insert("new review").is_ok());
+    }
+}

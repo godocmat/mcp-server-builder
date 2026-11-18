@@ -265,24 +265,26 @@ fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, DirectoryIdentity)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use builder_app::ProjectService;
+
+    pub(crate) fn record_fixture_selection(state: &Desktop, path: &Path, purpose: &str) -> Uuid {
+        let purpose = serde_json::from_value(serde_json::json!(purpose)).unwrap();
+        let directory = SelectedDirectory::new(fs::canonicalize(path).unwrap()).unwrap();
+        state
+            .paths
+            .lock()
+            .unwrap()
+            .insert(Selection { purpose, directory })
+            .unwrap()
+    }
 
     #[test]
     fn selections_are_purpose_bound_and_consumed_only_once() {
         let folder = tempfile::tempdir().unwrap();
         let state = Desktop::new(ProjectService::for_user());
-        let directory = SelectedDirectory::new(fs::canonicalize(folder.path()).unwrap()).unwrap();
-        let selection_id = state
-            .paths
-            .lock()
-            .unwrap()
-            .insert(Selection {
-                purpose: Purpose::ProjectRoot,
-                directory,
-            })
-            .unwrap();
+        let selection_id = record_fixture_selection(&state, folder.path(), "projectRoot");
         let chosen = PathRef { selection_id };
         assert!(chosen.export_parent(&state).is_err());
         assert!(chosen.project_root(&state).is_ok());

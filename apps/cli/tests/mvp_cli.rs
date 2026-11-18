@@ -16,7 +16,11 @@ fn workspace() -> TempDir {
         .unwrap()
 }
 
-fn call(workspace: &Path, args: &[&str], command: &str, code: i32) -> Value {
+fn builder(workspace: &Path) -> Command {
+    builder_for_profile(workspace, "profile")
+}
+
+fn builder_for_profile(workspace: &Path, profile: &str) -> Command {
     let mut child = Command::new(BUILDER);
     #[cfg(windows)]
     {
@@ -25,9 +29,13 @@ fn call(workspace: &Path, args: &[&str], command: &str, code: i32) -> Value {
 
         child.creation_flags(CREATE_NO_WINDOW);
     }
-    let output = child
-        .current_dir(workspace)
-        .args(["--json", "--profile", "profile"])
+    child.current_dir(workspace).args(["--profile", profile]);
+    child
+}
+
+fn call(workspace: &Path, args: &[&str], command: &str, code: i32) -> Value {
+    let output = builder(workspace)
+        .arg("--json")
         .args(args)
         .output()
         .unwrap();
@@ -51,6 +59,90 @@ fn save(path: &Path, value: &Value) {
 
 fn sample() -> Value {
     serde_json::from_str(SAMPLE).unwrap()
+}
+
+#[test]
+fn human_project_diagnostics_expose_only_recovery_actions_and_the_scoped_catalog() {
+    const MARKER: &str = "corrupted-manifest-canary-8862";
+    let workspace = workspace();
+    let wd = workspace.path();
+    let created = builder(wd)
+        .args(["project", "create", "catalog", "--name", "Pilot catalog"])
+        .output()
+        .unwrap();
+    assert!(created.status.success());
+    assert!(String::from_utf8_lossy(&created.stdout).contains("Pilot catalog"));
+    let opened = call(wd, &["project", "open", "catalog"], "project.open", 0);
+    let mut changed = opened["data"]["document"].clone();
+    changed["name"] = json!("Revised catalog");
+    save(&wd.join("draft.json"), &changed);
+    let revision = opened["data"]["revision"].as_str().unwrap();
+    let saved = builder(wd)
+        .args([
+            "project",
+            "save",
+            "catalog",
+            "--from",
+            "draft.json",
+            "--expect",
+            revision,
+        ])
+        .output()
+        .unwrap();
+    assert!(saved.status.success());
+    assert!(String::from_utf8_lossy(&saved.stdout).contains("Revised catalog"));
+    let stale = builder(wd)
+        .args([
+            "project",
+            "save",
+            "catalog",
+            "--from",
+            "draft.json",
+            "--expect",
+            revision,
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(stale.status.code(), Some(6));
+    assert!(stale.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("Current revision  sha256:"));
+
+    fs::write(
+        wd.join("catalog").join(MANIFEST),
+        format!(r#"{{"{MARKER}":"#),
+    )
+    .unwrap();
+    let damaged = builder(wd)
+        .args(["project", "open", "catalog"])
+        .output()
+        .unwrap();
+    assert_eq!(damaged.status.code(), Some(2));
+    assert!(damaged.stdout.is_empty());
+    let error = String::from_utf8_lossy(&damaged.stderr);
+    assert!(error.contains("Recovery candidate  sha256:"));
+    assert!(!error.contains(MARKER));
+
+    let known = builder(wd).args(["project", "list"]).output().unwrap();
+    assert!(known.status.success());
+    assert!(String::from_utf8_lossy(&known.stdout).contains("Revised catalog"));
+    let unrelated = builder_for_profile(wd, "unrelated")
+        .args(["project", "list"])
+        .output()
+        .unwrap();
+    assert!(unrelated.status.success());
+    let output = String::from_utf8_lossy(&unrelated.stdout);
+    assert!(output.contains("No projects are registered."));
+    assert!(!output.contains("Revised catalog"));
+
+    let wrong_option = builder(wd)
+        .args(["project", "open", "catalog", "--unknown", MARKER])
+        .output()
+        .unwrap();
+    assert_eq!(wrong_option.status.code(), Some(2));
+    assert!(wrong_option.stdout.is_empty());
+    let error = String::from_utf8_lossy(&wrong_option.stderr);
+    assert!(error.contains("Invalid command or options."));
+    assert!(!error.contains(MARKER));
 }
 
 #[test]
@@ -208,6 +300,80 @@ fn fresh_shells_validate_generate_and_recover_portable_projects() {
     assert_eq!(recovered["data"]["document"]["name"], "Catalog sample");
 }
 
+#[cfg(any(windows, target_os = "linux"))]
+#[test]
+fn cli_export_conflict_requests_a_new_review_without_printing_file_contents() {
+    const MARKER: &str = "export-local-content-canary-1a719";
+    let workspace = workspace();
+    let wd = workspace.path();
+    save(&wd.join(MANIFEST), &sample());
+    let initial = builder(wd)
+        .args(["generate", ".", "--out", "previous"])
+        .output()
+        .unwrap();
+    assert!(initial.status.success());
+    assert!(String::from_utf8_lossy(&initial.stdout).contains("Published"));
+    let lock = wd.join("previous/Cargo.lock");
+    let edited = format!("# {MARKER}\n");
+    fs::write(&lock, &edited).unwrap();
+    let regenerate = ["generate", ".", "--out", "new", "--from-export", "previous"];
+    let preview = builder(wd)
+        .args(regenerate)
+        .arg("--preview")
+        .output()
+        .unwrap();
+    assert!(preview.status.success());
+    let out = String::from_utf8_lossy(&preview.stdout);
+    assert!(out.contains("Review 1 changed files"));
+    assert!(out.contains("Cargo.lock"));
+    assert!(!out.contains(MARKER));
+
+    let rejected = builder(wd).args(regenerate).output().unwrap();
+    assert_eq!(rejected.status.code(), Some(6));
+    assert!(rejected.stdout.is_empty());
+    let error = String::from_utf8_lossy(&rejected.stderr);
+    assert!(error.contains("review each changed file"));
+    assert!(!error.contains(MARKER));
+    assert_eq!(fs::read_to_string(&lock).unwrap(), edited);
+    assert!(!wd.join("new").exists());
+
+    let mut inspect = regenerate.to_vec();
+    inspect.push("--preview");
+    let reported = call(wd, &inspect, "generate", 0);
+    let conflict = &reported["data"]["conflicts"][0];
+    assert_eq!(conflict["path"], "Cargo.lock");
+    let decisions = wd.join("decisions.json");
+    fs::write(&decisions, MARKER).unwrap();
+    let mut publish = regenerate.to_vec();
+    publish.extend(["--resolutions", "decisions.json"]);
+    let invalid = call(wd, &publish, "generate", 2);
+    assert_eq!(invalid["error"]["code"], "export.invalid_resolution");
+    assert!(!invalid.to_string().contains(MARKER));
+    assert!(!wd.join("new").exists());
+
+    save(
+        &decisions,
+        &json!({
+            "version": 1,
+            "resolutions": [{
+                "path": conflict["path"],
+                "observedDigest": conflict["observedDigest"],
+                "replacementDigest": conflict["replacementDigest"],
+                "decision": "regenerate",
+            }],
+        }),
+    );
+    let published = call(wd, &publish, "generate", 0);
+    assert_eq!(published["data"]["published"], true);
+    assert!(wd.join("new/generation.json").is_file());
+    assert!(
+        !fs::read_to_string(wd.join("new/Cargo.lock"))
+            .unwrap()
+            .contains(MARKER)
+    );
+    assert_eq!(fs::read_to_string(lock).unwrap(), edited);
+}
+
 #[cfg(windows)]
 mod windows {
     use super::*;
@@ -317,5 +483,86 @@ mod windows {
         let reviewed = review(wd, &selection);
         let passed = run(wd, &selection, reviewed["data"]["digest"].as_str(), 0);
         assert_eq!(passed["data"]["run"]["outcome"], "passed");
+    }
+
+    #[test]
+    fn human_launch_review_and_assertion_report_never_echo_private_fixture_values() {
+        const MARKER: &str = "fixture-human-output-canary-94bc6";
+        let workspace = workspace();
+        let wd = workspace.path();
+        let mut project = sample();
+        project["scenarios"][0]["fixtures"][0]["body"]["private"] = json!(MARKER);
+        save(&wd.join(MANIFEST), &project);
+        let named_review = builder(wd)
+            .args([
+                "policy",
+                "review",
+                "launch",
+                ".",
+                "--scenario",
+                "known_item",
+            ])
+            .args(ACCESS)
+            .output()
+            .unwrap();
+        assert!(named_review.status.success());
+        let named_review_text = String::from_utf8(named_review.stdout).unwrap();
+        assert!(!named_review_text.contains(MARKER));
+        let named_approval = named_review_text
+            .lines()
+            .find_map(|line| line.strip_prefix("Approval digest  "))
+            .unwrap();
+        let passed = builder(wd)
+            .args([
+                "test",
+                "run",
+                ".",
+                "--scenario",
+                "known_item",
+                "--approve",
+                named_approval,
+            ])
+            .args(ACCESS)
+            .output()
+            .unwrap();
+        assert!(passed.status.success());
+        let out = String::from_utf8_lossy(&passed.stdout);
+        assert!(out.contains("Scenario passed in"));
+        assert!(!out.contains(MARKER));
+        assert!(!String::from_utf8_lossy(&passed.stderr).contains(MARKER));
+
+        project["scenarios"][0]["assertions"][0]["expected"] = json!("A different item");
+        save(&wd.join(MANIFEST), &project);
+
+        let review = builder(wd)
+            .args(["policy", "review", "launch", ".", "--all"])
+            .args(ACCESS)
+            .output()
+            .unwrap();
+        assert!(review.status.success());
+        let review_text = String::from_utf8(review.stdout).unwrap();
+        assert!(review_text.contains("Executable"));
+        assert!(review_text.contains("Grant"));
+        assert!(review_text.contains("Prompt  review_item"));
+        assert!(!review_text.contains(MARKER));
+        assert!(!String::from_utf8_lossy(&review.stderr).contains(MARKER));
+        let approval = review_text
+            .lines()
+            .find_map(|line| line.strip_prefix("Suite approval digest  "))
+            .unwrap();
+
+        let run = builder(wd)
+            .args(["test", "run", ".", "--all", "--approve", approval])
+            .args(ACCESS)
+            .output()
+            .unwrap();
+        assert_eq!(run.status.code(), Some(4));
+        assert!(run.stdout.is_empty());
+        let error = String::from_utf8(run.stderr).unwrap();
+        assert!(error.contains("scenario.assertion_failed"));
+        assert!(error.contains("known_item  assertion failed"));
+        assert!(error.contains("Assertion 1 differs at /structuredContent/name."));
+        assert!(error.contains("review  passed"));
+        assert!(!error.contains(MARKER));
     }
 }

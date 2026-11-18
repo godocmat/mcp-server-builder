@@ -87,6 +87,8 @@ fn desktop_builder<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
+    mod pilot_boundaries;
+
     use super::*;
     use serde_json::{Value, json};
     use tauri::ipc::{CallbackFn, InvokeBody};
