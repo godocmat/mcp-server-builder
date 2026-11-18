@@ -290,6 +290,12 @@ async fn preserves_native_arguments_environment_and_stdio() {
         ("ZZ_EMPTY", ""),
         (UNRELATED_HANDLE, unrelated_handle.as_str()),
     ];
+    // The Windows LLVM profile runtime adds this marker inside the instrumented
+    // child before the fixture reads its environment.
+    if option_env!("CARGO_LLVM_COV") == Some("1") {
+        let marker = "__LLVM_PROFILE_RT_INIT_ONCE";
+        expected_environment.push((marker, marker));
+    }
     expected_environment.sort();
     assert_eq!(
         actual,
