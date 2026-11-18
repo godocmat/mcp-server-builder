@@ -1,4 +1,4 @@
-import { JsonPipe } from "@angular/common";
+import { JsonPipe, KeyValuePipe } from "@angular/common";
 import {
   ChangeDetectionStrategy,
   Component,
@@ -72,7 +72,7 @@ function invocation(
 
 @Component({
   selector: "app-playground",
-  imports: [DiagnosticsComponent, JsonPipe],
+  imports: [DiagnosticsComponent, JsonPipe, KeyValuePipe],
   templateUrl: "./playground.component.html",
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

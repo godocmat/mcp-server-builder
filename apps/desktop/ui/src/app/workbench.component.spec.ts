@@ -101,6 +101,22 @@ async function edit(
   await fixture.whenStable();
 }
 
+async function toggleCheck(
+  fixture: ComponentFixture<WorkbenchComponent>,
+  label: string,
+): Promise<void> {
+  const control = Array.from(
+    (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLLabelElement>(
+      ".check-label",
+    ),
+  )
+    .find((item) => item.textContent?.includes(label))
+    ?.querySelector("input");
+  if (!control) throw new Error("Could not find checkbox " + label);
+  control.click();
+  await fixture.whenStable();
+}
+
 function visibleText(fixture: ComponentFixture<WorkbenchComponent>): string {
   const content = (fixture.nativeElement as HTMLElement).cloneNode(
     true,
@@ -608,5 +624,580 @@ describe("desktop MVP workflow", () => {
       },
     });
     expect(visibleText(fixture)).toContain("Export complete");
+  });
+
+  it("configures file paths and prompt arguments and saves a fixture that exercises the prompt", async () => {
+    const empty: ProjectSnapshot = {
+      ...snapshot,
+      document: {
+        ...snapshot.document,
+        capabilities: [],
+        bindings: [],
+        policy: { grants: [] },
+        secretRefs: [],
+        scenarios: [],
+      },
+    };
+    const { fixture, invoke } = await createWorkspace(
+      (command, { request }) => {
+        switch (command) {
+          case "project_list":
+            return success([]);
+          case "select_path":
+            return success({ selectionId: "source", displayPath: root });
+          case "project_open":
+            return success(empty);
+          case "project_validate":
+            return success({ valid: true });
+          case "project_save":
+            return success({
+              ...empty,
+              revision: revisionTwo,
+              document: (request as { document: ProjectDocument }).document,
+            });
+          default:
+            throw new Error(command);
+        }
+      },
+    );
+
+    await openFolder(fixture);
+    await click(fixture, "File resource");
+    await edit(fixture, "editor-field-/capabilities/0/name", "Catalog guide");
+    await edit(
+      fixture,
+      "editor-field-/capabilities/0/uri",
+      "catalog://docs/guide",
+    );
+    await edit(fixture, "editor-field-/bindings/0/rootRef", "catalog_docs");
+    await edit(
+      fixture,
+      "editor-field-/bindings/0/relativePathTemplate",
+      "manual/guide.txt",
+    );
+    await edit(fixture, "editor-field-/capabilities/0/timeoutMs", "2.5");
+    await click(fixture, "Validate");
+    expect(visibleText(fixture)).toContain("Enter a whole number");
+    expect(
+      invoke.mock.calls.some(([command]) => command === "project_validate"),
+    ).toBe(false);
+    await edit(fixture, "editor-field-/capabilities/0/timeoutMs", "2000");
+    await click(fixture, "Request a grant from these settings");
+    await click(fixture, "Request a grant from these settings");
+    await click(fixture, "Remove grant grant_2");
+
+    await click(fixture, "Resource template");
+    await edit(fixture, "editor-field-/capabilities/1/name", "Catalog note");
+    await edit(
+      fixture,
+      "editor-field-/capabilities/1/uriTemplate",
+      "catalog://docs/items/{id}",
+    );
+    await edit(
+      fixture,
+      "editor-field-/capabilities/1/variables",
+      '{"id":{"type":"string","pattern":"^[0-9]+$"}}',
+    );
+    await edit(fixture, "editor-field-/bindings/1/rootRef", "catalog_docs");
+    await edit(
+      fixture,
+      "editor-field-/bindings/1/relativePathTemplate",
+      "notes/{id}.txt",
+    );
+    await click(fixture, "Request a grant from these settings");
+    await edit(
+      fixture,
+      "editor-field-/policy/grants/1/target/relativePathTemplate",
+      "notes/42.txt",
+    );
+    await edit(
+      fixture,
+      "editor-field-/policy/grants/1/limits/timeoutMs",
+      "1200",
+    );
+
+    await click(fixture, "Prompt");
+    await edit(fixture, "editor-field-/capabilities/2/name", "review_item");
+    await click(fixture, "Add prompt argument");
+    await edit(
+      fixture,
+      "editor-field-/capabilities/2/arguments/0/name",
+      "draft_placeholder",
+    );
+    await click(fixture, "Add prompt argument");
+    await edit(fixture, "editor-field-/capabilities/2/arguments/1/name", "id");
+    await click(fixture, "Remove argument 1");
+    const required = get<HTMLInputElement>(
+      fixture,
+      "editor-field-/capabilities/2/arguments/0/required",
+    );
+    required.click();
+    await fixture.whenStable();
+    await edit(
+      fixture,
+      "editor-field-/capabilities/2/messages/0/textTemplate",
+      "Review the catalog.",
+    );
+    await click(fixture, "Add prompt message");
+    await edit(
+      fixture,
+      "editor-field-/capabilities/2/messages/1/role",
+      "assistant",
+      "change",
+    );
+    await edit(
+      fixture,
+      "editor-field-/capabilities/2/messages/1/textTemplate",
+      "Review item {id}.",
+    );
+
+    await click(fixture, "Add fixture scenario");
+    await edit(fixture, "editor-field-/scenarios/0/name", "Render review");
+    await edit(fixture, "scenario-method", "prompts/get", "change");
+    await edit(
+      fixture,
+      "editor-field-/scenarios/0/call/arguments",
+      '{"id":"42"}',
+    );
+    await edit(
+      fixture,
+      "editor-field-/scenarios/0/assertions",
+      '[{"kind":"schema","path":"/messages","schema":{"type":"array"}}]',
+    );
+    await click(fixture, "Validate");
+    expect(visibleText(fixture)).toContain("The draft is valid.");
+    await click(fixture, "Save project");
+
+    expect(invoke).toHaveBeenCalledWith("project_save", {
+      request: {
+        registrationId,
+        expectedRevision: digest,
+        document: expect.objectContaining({
+          capabilities: [
+            expect.objectContaining({
+              kind: "resource",
+              uri: "catalog://docs/guide",
+              timeoutMs: 2000,
+            }),
+            expect.objectContaining({
+              kind: "resourceTemplate",
+              uriTemplate: "catalog://docs/items/{id}",
+              variables: { id: { type: "string", pattern: "^[0-9]+$" } },
+            }),
+            expect.objectContaining({
+              kind: "prompt",
+              name: "review_item",
+              arguments: [{ name: "id", required: false }],
+              messages: [
+                { role: "user", textTemplate: "Review the catalog." },
+                { role: "assistant", textTemplate: "Review item {id}." },
+              ],
+            }),
+          ],
+          bindings: [
+            expect.objectContaining({
+              kind: "fileRead",
+              rootRef: "catalog_docs",
+              relativePathTemplate: "manual/guide.txt",
+            }),
+            expect.objectContaining({
+              kind: "fileRead",
+              rootRef: "catalog_docs",
+              relativePathTemplate: "notes/{id}.txt",
+            }),
+          ],
+          policy: {
+            grants: [
+              expect.objectContaining({
+                capabilityId: "file_resource",
+                operation: "file.read",
+              }),
+              expect.objectContaining({
+                capabilityId: "file_template",
+                operation: "file.read",
+                target: {
+                  kind: "fileRead",
+                  rootRef: "catalog_docs",
+                  relativePathTemplate: "notes/42.txt",
+                },
+                limits: { timeoutMs: 1200 },
+              }),
+            ],
+          },
+          scenarios: [
+            expect.objectContaining({
+              name: "Render review",
+              mode: "fixture",
+              call: {
+                method: "prompts/get",
+                name: "review_item",
+                arguments: { id: "42" },
+              },
+            }),
+          ],
+        }),
+      },
+    });
+    expect(visibleText(fixture)).toContain("Project saved.");
+  });
+
+  it("repicks the same damaged project before restoring its last valid revision", async () => {
+    const messages = failure(
+      "project.missing",
+      "The project manifest is missing.",
+    );
+    const candidate = {
+      kind: "lastValid",
+      path: ".mcp-project.last-valid.json",
+      revision: digest,
+    };
+    let pickerNumber = 0;
+    const { fixture, invoke } = await createWorkspace((command) => {
+      switch (command) {
+        case "project_list":
+          return success([]);
+        case "select_path": {
+          pickerNumber++;
+          return success({
+            selectionId: "selection-" + pickerNumber,
+            displayPath: pickerNumber === 2 ? root + "-other" : root,
+          });
+        }
+        case "project_open":
+          return {
+            ...messages,
+            diagnostics: [
+              {
+                ...messages.error,
+                code: "project.recovery_available",
+                severity: "warning",
+                message: "A valid local recovery file is available.",
+                details: {
+                  currentRevision: null,
+                  candidates: [
+                    candidate,
+                    {
+                      kind: "interruptedWrite",
+                      path: ".mcp-project-stage-1",
+                      revision: revisionTwo,
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        case "project_recover":
+          return success(snapshot);
+        default:
+          throw new Error(command);
+      }
+    });
+    await openFolder(fixture);
+    expect(visibleText(fixture)).toContain("The project manifest is missing.");
+    expect(visibleText(fixture)).toContain("Interrupted write");
+    await click(fixture, "Restore this revision");
+    expect(
+      invoke.mock.calls.some(([command]) => command === "project_recover"),
+    ).toBe(false);
+    await click(fixture, "Continue");
+    expect(visibleText(fixture)).toContain(
+      "Select the project folder that reported this recovery file.",
+    );
+    expect(
+      invoke.mock.calls.some(([command]) => command === "project_recover"),
+    ).toBe(false);
+
+    await click(fixture, "Restore this revision");
+    await click(fixture, "Continue");
+    expect(invoke).toHaveBeenCalledWith("project_recover", {
+      request: {
+        root: { selectionId: "selection-3" },
+        expectedRevision: null,
+        source: { kind: "backup", revision: digest },
+      },
+    });
+    expect(visibleText(fixture)).toContain(
+      "Project restored from the selected revision.",
+    );
+    expect(visibleText(fixture)).toContain("Catalog sample");
+  });
+
+  it("reviews explicit live sources, clears the session value, and accepts another call after cancellation", async () => {
+    const liveRoot = root + "\\docs";
+    const canary = "one-launch-component-secret";
+    const environmentName = "MCP_PILOT_TOKEN";
+    const liveProject: ProjectSnapshot = {
+      ...snapshot,
+      document: {
+        ...snapshot.document,
+        secretRefs: [
+          ...snapshot.document.secretRefs,
+          { id: "catalog_session", purpose: "Authorize this session" },
+        ],
+        bindings: snapshot.document.bindings.map((binding) =>
+          binding.kind === "rest"
+            ? {
+                ...binding,
+                headersFromSecrets: {
+                  ...binding.headersFromSecrets,
+                  "X-Catalog-Session": "catalog_session",
+                },
+              }
+            : binding,
+        ),
+      },
+    };
+    const discovery: Discovery = {
+      protocolRevision: "2025-11-25",
+      supportedMethods: ["tools/call", "resources/read", "prompts/get"],
+      capabilities: { tools: true, resources: true, prompts: true },
+      tools: [{ name: "lookup_item", inputSchema: { type: "object" } }],
+      resources: [],
+      resourceTemplates: [
+        { name: "Catalog note", uriTemplate: "catalog://docs/items/{id}" },
+      ],
+      prompts: [
+        { name: "review_item", arguments: [{ name: "id", required: true }] },
+      ],
+    };
+    const review: LaunchReview = {
+      reviewId: "live-review",
+      digest,
+      summary: {
+        digest,
+        registrationId,
+        projectId: snapshot.document.projectId,
+        manifestRevision: digest,
+        mode: { kind: "live" },
+        executable: root + "\\mcp-builder.exe",
+        arguments: ["managed-worker"],
+        workingDirectory: root,
+        environment: {},
+        fileRoots: { catalog_docs: liveRoot },
+        approvedGrants: liveProject.document.policy.grants,
+        approvedPromptIds: ["review_item"],
+        credentialSources: {
+          catalog_auth: { kind: "environment", name: environmentName },
+          catalog_session: { kind: "session" },
+        },
+        credentialTargets: [
+          {
+            capabilityId: "lookup_item",
+            bindingId: "catalog_lookup",
+            origin: "https://catalog.example.test",
+            references: ["catalog_auth", "catalog_session"],
+          },
+        ],
+        limits: {},
+      },
+    };
+    const trace: TraceSnapshot = {
+      summary: { entries: 0, droppedEntries: 0, truncated: false },
+      entries: [],
+    };
+    const run = (
+      runId: string,
+      outcome: "cancelled" | "passed",
+    ): PreviewRun => ({
+      result: {
+        version: 1,
+        runId,
+        correlationId: runId,
+        target: "managedLive",
+        transport: "stdio",
+        protocolRevision: "2025-11-25",
+        startedAt: "2026-11-18T09:00:00Z",
+        durationMs: 12,
+        outcome,
+        effect: "none",
+        assertions: [],
+        traceSummary: trace.summary,
+      },
+      ...(outcome === "passed"
+        ? {
+            payload: {
+              messages: [{ role: "user", content: "Review catalog item 42." }],
+            },
+          }
+        : {}),
+    });
+
+    let rootSelections = 0;
+    let cancelled = false;
+    let password: HTMLInputElement | undefined;
+    let passwordDuringReview: string | undefined;
+    let stopAttempts = 0;
+    const { fixture, invoke } = await createWorkspace(
+      (command, { request }) => {
+        switch (command) {
+          case "project_list":
+            return success([]);
+          case "select_path":
+            return (request as { purpose: string }).purpose === "fileRoot"
+              ? success({
+                  selectionId: "file-root-" + ++rootSelections,
+                  displayPath: liveRoot,
+                })
+              : success({ selectionId: "project-root", displayPath: root });
+          case "project_open":
+            return success(liveProject);
+          case "policy_review":
+            passwordDuringReview = password?.value;
+            return success(review);
+          case "policy_approve":
+            return success({
+              approvalId: "approved-live",
+              expiresAt: "2026-11-18T09:05:00Z",
+            });
+          case "playground_start":
+            return success({ operationId: "start-live" });
+          case "playground_call":
+            return success({
+              runId:
+                (request as { call: { method: string } }).call.method ===
+                "resources/read"
+                  ? "file-run"
+                  : "prompt-run",
+            });
+          case "run_poll": {
+            const { id } = request as { id: string };
+            if (id === "file-run" && !cancelled)
+              return success({ events: [], nextCursor: 0, terminal: false });
+            const event =
+              id === "start-live"
+                ? { kind: "started", connectionId: "live", discovery }
+                : {
+                    kind: "completed",
+                    run: run(id, id === "file-run" ? "cancelled" : "passed"),
+                  };
+            return success({
+              events: [{ cursor: 1, ...event }],
+              nextCursor: 1,
+              terminal: true,
+            });
+          }
+          case "run_cancel":
+            cancelled = (request as { id: string }).id === "file-run";
+            return success({ cancellationRequested: cancelled });
+          case "playground_trace":
+            return success(trace);
+          case "playground_stop":
+            if (++stopAttempts === 1) throw new Error(canary);
+            return failure(
+              "playground.stop_failed",
+              "The preview process did not stop within its shutdown budget.",
+            );
+          default:
+            throw new Error(command);
+        }
+      },
+    );
+
+    await openFolder(fixture);
+    await click(fixture, "Playground");
+    await edit(fixture, "preview-mode", "live", "change");
+    await edit(fixture, "preview-protocol", "2025-11-25", "change");
+    await toggleCheck(fixture, "catalog_read");
+    await toggleCheck(fixture, "note_read");
+    await toggleCheck(fixture, "review_item");
+    await toggleCheck(fixture, "Include redacted message contents");
+    await click(fixture, "Choose folder for catalog_docs");
+    expect(visibleText(fixture)).toContain(liveRoot);
+    await click(fixture, "Clear catalog_docs");
+    expect(visibleText(fixture)).not.toContain(liveRoot);
+    await click(fixture, "Choose folder for catalog_docs");
+    await edit(fixture, "secret-source-catalog_auth", "environment", "change");
+    await edit(fixture, "secret-catalog_auth", environmentName);
+    await edit(fixture, "secret-source-catalog_session", "session", "change");
+    await edit(fixture, "secret-catalog_session", canary);
+    password = get<HTMLInputElement>(fixture, "secret-catalog_session");
+    expect(password.type).toBe("password");
+
+    await click(fixture, "Review launch");
+    expect(passwordDuringReview).toBe("");
+    expect(password.value).toBe("");
+    expect(invoke).toHaveBeenCalledWith("policy_review", {
+      request: {
+        subject: { kind: "launch", registrationId, expectedRevision: digest },
+        mode: { kind: "live" },
+        access: {
+          approvedGrantIds: ["catalog_read", "note_read"],
+          approvedPromptIds: ["review_item"],
+          fileRoots: { catalog_docs: { selectionId: "file-root-2" } },
+          credentials: {
+            catalog_auth: { kind: "environment", name: environmentName },
+            catalog_session: { kind: "session", value: canary },
+          },
+        },
+        protocol: "2025-11-25",
+        capturePayloads: true,
+      },
+    });
+    expect(visibleText(fixture)).toContain(environmentName);
+    expect(visibleText(fixture)).toContain("Session value");
+    expect(visibleText(fixture)).toContain(liveRoot);
+    expect(visibleText(fixture)).not.toContain(canary);
+    await click(fixture, "Approve and start");
+
+    await click(fixture, "Use template Catalog note");
+    await edit(fixture, "playground-target", "catalog://docs/items/42");
+    await edit(fixture, "playground-timeout", "30001");
+    await click(fixture, "Run live request");
+    expect(visibleText(fixture)).toContain(
+      "Enter a timeout from 1 to 30,000 ms.",
+    );
+    expect(
+      invoke.mock.calls.some(([command]) => command === "playground_call"),
+    ).toBe(false);
+    await edit(fixture, "playground-timeout", "1000");
+    await click(fixture, "Run live request");
+    expect(invoke).toHaveBeenCalledWith("playground_call", {
+      request: {
+        connectionId: "live",
+        timeoutMs: 1000,
+        call: { method: "resources/read", uri: "catalog://docs/items/42" },
+      },
+    });
+    await click(fixture, "Cancel call");
+    expect(invoke).toHaveBeenCalledWith("run_cancel", {
+      request: { id: "file-run" },
+    });
+    await vi.waitFor(async () => {
+      await fixture.whenStable();
+      expect(visibleText(fixture)).toContain("Cancelled in 12 ms.");
+    });
+
+    await edit(fixture, "playground-method", "prompts/get", "change");
+    await edit(fixture, "playground-target", "review_item");
+    await edit(fixture, "playground-arguments", '{"id":42}');
+    await click(fixture, "Run live request");
+    expect(visibleText(fixture)).toContain("JSON object with string values");
+    await edit(fixture, "playground-arguments", '{"id":"42"}');
+    await click(fixture, "Run live request");
+    expect(invoke).toHaveBeenCalledWith("playground_call", {
+      request: {
+        connectionId: "live",
+        timeoutMs: 1000,
+        call: {
+          method: "prompts/get",
+          name: "review_item",
+          arguments: { id: "42" },
+        },
+      },
+    });
+    expect(visibleText(fixture)).toContain("Review catalog item 42.");
+
+    await click(fixture, "Stop server");
+    expect(visibleText(fixture)).toContain("Try Stop server again.");
+    expect(visibleText(fixture)).not.toContain(canary);
+    await click(fixture, "Stop server");
+    expect(visibleText(fixture)).toContain(
+      "The connection closed with a shutdown error.",
+    );
+    expect(visibleText(fixture)).not.toContain("Review catalog item 42.");
+    expect(get<HTMLInputElement>(fixture, "secret-catalog_session").value).toBe(
+      "",
+    );
+    expect(visibleText(fixture)).not.toContain(liveRoot);
   });
 });

@@ -329,7 +329,19 @@
 
       @if (pending.mode.kind === "live") {
         <h4>Selected file roots</h4>
-        <pre>{{ details.fileRoots | json }}</pre>
+        @let roots = details.fileRoots | keyvalue;
+        @if (roots.length) {
+          <dl class="key-values">
+            @for (root of roots; track root.key) {
+              <dt>{{ root.key }}</dt>
+              <dd>
+                <code>{{ root.value }}</code>
+              </dd>
+            }
+          </dl>
+        } @else {
+          <p class="quiet">No file roots selected.</p>
+        }
         <h4>Credential references and destinations</h4>
         <ul class="compact-list">
           @for (target of details.credentialTargets; track $index) {
