@@ -16,6 +16,21 @@ The Windows pilot ships the desktop builder and CLI for local stdio workflows. T
 
 Keep the initial matrix to these rows. Additional Windows editions and releases, Windows arm64, Intel Macs, other macOS releases or Linux distributions, Linux arm64, additional installer formats and offline Windows bundles need their own build and acceptance rows if selected. Recheck vendor support windows before each release. The Rust project lists all three proposed triples as Tier 1 with host tools. GitHub's pinned OS labels select the worker family and architecture. `windows-2025` runs Windows Server 2025, so it supplies build and automated smoke evidence while the Windows 11 VM supplies installer and interactive evidence. [Rust platform support](https://doc.rust-lang.org/rustc/platform-support.html#tier-1-with-host-tools) · [GitHub-hosted runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) · [Runner images](https://github.com/actions/runner-images)
 
+## Build the Windows pilot installer
+
+Use Windows x64, PowerShell 7.3 or newer, and the locked Rust and Node inputs and MSVC prerequisites. Install the Angular dependencies from the lockfile before building. [Windows development prerequisites](development.md#windows-prerequisites-and-local-setup)
+
+```powershell
+Push-Location apps/desktop
+npm.cmd ci --engine-strict
+Pop-Location
+./apps/desktop/scripts/build-windows-pilot.ps1
+```
+
+The script builds the release CLI and desktop from the same checkout. It stages the CLI for Tauri and creates an unsigned per-user NSIS installer under `x86_64-pc-windows-msvc/release/bundle/nsis` in the Cargo target directory. Pass `-TargetDirectory` to choose the output location. The Windows package places `mcp-builder.exe` beside the desktop executable. That copy serves as the managed playground worker and can also be invoked directly from PowerShell. The bundled CLI follows the same approval requirements as a source build. [CLI workflow](local-cli.md)
+
+On the Windows acceptance VM, record the installer SHA-256, signing status, and WebView2 version before completing the pilot workflow. The installer uses Evergreen WebView2 when present and downloads Microsoft's bootstrapper when the runtime is missing. [Windows pilot test plan](testing.md#windows-pilot)
+
 ## Build, WebView and signing constraints
 
 | Component | Verified source constraint and proposed build input |
