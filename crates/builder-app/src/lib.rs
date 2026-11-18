@@ -13,8 +13,9 @@ mod smoke;
 pub use builder_project::{ManifestRevision, ProjectDocument, SchemaVersion};
 pub use diagnostic::{Diagnostic, DiagnosticCode, DiagnosticDetails, Severity};
 pub use generation::{
-    ConflictDecision, ConflictResolution, ExportConflict, FileOwner, GeneratedFile,
-    GenerationRecord, GenerationRequest, GenerationResult, ResolutionSource, generate,
+    ConflictDecision, ConflictResolution, ExportConflict, ExportPlan, FileOwner, GeneratedFile,
+    GenerationRecord, GenerationRequest, GenerationResult, ResolutionSource, ReviewedGeneration,
+    generate,
 };
 pub use project::{
     ProjectLocation, ProjectRecovery, ProjectService, ProjectSnapshot, ProjectStatus,

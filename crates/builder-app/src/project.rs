@@ -197,6 +197,40 @@ impl ProjectService {
         operation.finish(result)
     }
 
+    pub async fn plan_generation_for_registration(
+        &self,
+        registration_id: Uuid,
+        expected_revision: ManifestRevision,
+        destination: PathBuf,
+        previous_export: Option<PathBuf>,
+    ) -> Reply<crate::ReviewedGeneration> {
+        let result = async {
+            let location = self
+                .resolve(ProjectLocation::Registration(registration_id))
+                .await?;
+            on_disk(move || {
+                let root = project_files::canonical_root(&location.root)?;
+                let manifest = read_valid(&root, location.project_id())?;
+                location.check_identity(&root, &manifest)?;
+                if manifest.revision() != expected_revision {
+                    return Err(FileError::Conflict(Some(manifest.revision())).into());
+                }
+                Ok(crate::generation::plan_reviewed_generation(
+                    root,
+                    destination,
+                    previous_export,
+                    expected_revision,
+                ))
+            })
+            .await
+        }
+        .await;
+        match result {
+            Ok(review) => review,
+            Err(error) => Operation::new().finish(Err(error)),
+        }
+    }
+
     pub async fn create(&self, destination: PathBuf, name: String) -> Reply<ProjectSnapshot> {
         self.mutate(Mutation::Create {
             destination,

@@ -69,65 +69,17 @@ pub(crate) fn is_reserved_path(path: &str) -> bool {
         || is_stage_name(first)
 }
 
-pub(crate) fn check_destination(path: &Path) -> Result<PathBuf, ExportError> {
-    let destination = Destination::open(path)?;
-    Ok(destination.parent.path().join(destination.name))
-}
-
 pub(crate) fn checked_root(path: &Path) -> Result<PathBuf, ExportError> {
     Ok(Directory::open(&absolute_path(path)?)?.path().to_path_buf())
 }
 
-pub(crate) fn publish(
-    destination: &Path,
-    files: &BTreeMap<String, Vec<u8>>,
-    recheck: impl FnOnce() -> Result<(), ExportError>,
-) -> Result<(), ExportError> {
-    validate_paths(files.keys().map(String::as_str))?;
-    let mut bytes_left = MAX_TREE_BYTES;
-    for bytes in files.values() {
-        check_size(bytes.len(), &mut bytes_left)?;
-    }
-
-    let destination = Destination::open(destination)?;
-    let mut stage_builder = tempfile::Builder::new();
-    stage_builder.prefix(STAGE_PREFIX).rand_bytes(16);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        stage_builder.permissions(fs::Permissions::from_mode(0o700));
-    }
-    let stage = stage_builder
-        .tempdir_in(destination.parent.access_path())
-        .map_err(storage)?;
-    let result = (|| {
-        let stage_name = leaf_name(stage.path())?;
-        let directory = destination.parent.open_stage(stage_name)?;
-        write_stage(&directory, files)?;
-        recheck()?;
-        destination
-            .parent
-            .publish(&directory, stage_name, &destination.name)
-    })();
-    match result {
-        Ok(()) => {
-            let _ = stage.keep();
-            Ok(())
-        }
-        Err(error) => {
-            stage.close().map_err(storage)?;
-            Err(error)
-        }
-    }
-}
-
-struct Destination {
+pub(crate) struct Destination {
     parent: Directory,
     name: String,
 }
 
 impl Destination {
-    fn open(path: &Path) -> Result<Self, ExportError> {
+    pub(crate) fn open(path: &Path) -> Result<Self, ExportError> {
         leaf_name(path)?;
         let absolute = absolute_path(path)?;
         let name = leaf_name(&absolute)?.to_owned();
@@ -137,6 +89,51 @@ impl Destination {
         let parent = Directory::open(absolute.parent().ok_or(ExportError::UnsafePath)?)?;
         parent.check_absent(&name)?;
         Ok(Self { parent, name })
+    }
+
+    pub(crate) fn path(&self) -> PathBuf {
+        self.parent.path().join(&self.name)
+    }
+
+    pub(crate) fn publish(
+        &self,
+        files: &BTreeMap<String, Vec<u8>>,
+        recheck: impl FnOnce() -> Result<(), ExportError>,
+    ) -> Result<(), ExportError> {
+        self.parent.check_absent(&self.name)?;
+        validate_paths(files.keys().map(String::as_str))?;
+        let mut bytes_left = MAX_TREE_BYTES;
+        for bytes in files.values() {
+            check_size(bytes.len(), &mut bytes_left)?;
+        }
+
+        let mut stage_builder = tempfile::Builder::new();
+        stage_builder.prefix(STAGE_PREFIX).rand_bytes(16);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            stage_builder.permissions(fs::Permissions::from_mode(0o700));
+        }
+        let stage = stage_builder
+            .tempdir_in(self.parent.access_path())
+            .map_err(storage)?;
+        let result = (|| {
+            let stage_name = leaf_name(stage.path())?;
+            let directory = self.parent.open_stage(stage_name)?;
+            write_stage(&directory, files)?;
+            recheck()?;
+            self.parent.publish(&directory, stage_name, &self.name)
+        })();
+        match result {
+            Ok(()) => {
+                let _ = stage.keep();
+                Ok(())
+            }
+            Err(error) => {
+                stage.close().map_err(storage)?;
+                Err(error)
+            }
+        }
     }
 }
 

@@ -223,3 +223,17 @@ fn fixture() -> BTreeMap<String, Vec<u8>> {
         ("src/café.rs".to_owned(), b"fn main() {}\n".to_vec()),
     ])
 }
+
+#[cfg(any(windows, target_os = "linux"))]
+fn check_destination(path: &Path) -> Result<PathBuf, ExportError> {
+    Ok(Destination::open(path)?.path())
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn publish(
+    path: &Path,
+    files: &BTreeMap<String, Vec<u8>>,
+    recheck: impl FnOnce() -> Result<(), ExportError>,
+) -> Result<(), ExportError> {
+    Destination::open(path)?.publish(files, recheck)
+}

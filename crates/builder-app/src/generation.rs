@@ -1,16 +1,19 @@
 use std::path::PathBuf;
 
 pub use builder_generator::{
-    ConflictDecision, ConflictResolution, ExportConflict, FileOwner, GeneratedFile,
+    ConflictDecision, ConflictResolution, ExportConflict, ExportPlan, FileOwner, GeneratedFile,
     GenerationRecord,
 };
 use builder_generator::{
-    ExportError, ExportPlan, ExportRequest, plan_export, publish_export, read_resolutions,
+    ExportError, ExportRequest, ReviewedExport, plan_export, publish_export, read_resolutions,
+    review_export,
 };
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::{Diagnostic, DiagnosticCode, DiagnosticDetails, Reply, Severity, project};
+use crate::{
+    Diagnostic, DiagnosticCode, DiagnosticDetails, ManifestRevision, Reply, Severity, project,
+};
 
 #[derive(Debug)]
 pub enum ResolutionSource {
@@ -35,9 +38,47 @@ pub struct GenerationResult {
     pub conflicts: Vec<ExportConflict>,
 }
 
+/// A review holds the destination and rechecks its inputs before source is published.
+pub struct ReviewedGeneration {
+    pub plan: ExportPlan,
+    pub digest: ManifestRevision,
+    prepared: ReviewedExport,
+}
+
+impl ReviewedGeneration {
+    pub fn publish(self, resolutions: Vec<ConflictResolution>) -> Reply<GenerationRecord> {
+        export_reply(self.prepared.publish(resolutions))
+    }
+}
+
+pub(crate) fn plan_reviewed_generation(
+    project_root: PathBuf,
+    destination: PathBuf,
+    previous_export: Option<PathBuf>,
+    expected_revision: ManifestRevision,
+) -> Reply<ReviewedGeneration> {
+    let request = ExportRequest {
+        project_root,
+        destination,
+        previous_export,
+        resolutions: Vec::new(),
+    };
+    export_reply(
+        review_export(&request, expected_revision).map(|review| ReviewedGeneration {
+            plan: review.plan,
+            digest: review.digest,
+            prepared: review.prepared,
+        }),
+    )
+}
+
 /// Plan or publish source without building it or opening the local project catalog.
 pub fn generate(request: GenerationRequest) -> Reply<GenerationResult> {
-    match run(request) {
+    export_reply(run(request))
+}
+
+fn export_reply<T>(result: Result<T, ExportError>) -> Reply<T> {
+    match result {
         Ok(data) => Reply::Success {
             data,
             diagnostics: Vec::new(),

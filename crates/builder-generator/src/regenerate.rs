@@ -66,9 +66,13 @@ pub(crate) fn apply(
     manifest: &ValidatedManifest,
     output: &mut OutputFiles,
     resolutions: &[ConflictResolution],
+    expected: Option<&TreeDigests>,
 ) -> Result<(TreeDigests, Vec<ExportConflict>), ExportError> {
     let mut tree = publication::read_tree(root)?;
     let observed = tree_digests(&tree);
+    if expected.is_some_and(|expected| *expected != observed) {
+        return Err(ExportError::InputChanged);
+    }
     let record = tree
         .remove(GENERATION_NAME)
         .ok_or(ExportError::InvalidPreviousExport)?;

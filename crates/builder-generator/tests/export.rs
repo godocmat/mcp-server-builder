@@ -6,7 +6,7 @@ use std::path::Path;
 
 use builder_generator::{
     ConflictDecision, ConflictResolution, ExportError, ExportRequest, FileOwner, GenerationRecord,
-    plan_export, publish_export, read_resolutions,
+    plan_export, publish_export, read_resolutions, review_export,
 };
 use builder_project::{MANIFEST_NAME, ManifestRevision, ProjectDocument, validate_document};
 use serde_json::json;
@@ -45,6 +45,75 @@ fn inventory(root: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut files = BTreeMap::new();
     visit(root, "", &mut files);
     files
+}
+
+#[test]
+fn reviewed_publication_requires_the_exact_saved_manifest() {
+    let scratch = tempfile::tempdir().unwrap();
+    let request = request(scratch.path(), "reviewed");
+    project(&request.project_root);
+    let path = request.project_root.join(MANIFEST_NAME);
+    let mut bytes = fs::read(&path).unwrap();
+    let revision = ManifestRevision::of(&bytes);
+    let review = review_export(&request, revision).unwrap();
+    let expected = review.plan.generation.unwrap();
+    bytes.push(b'\n');
+    fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        review_export(&request, revision),
+        Err(ExportError::InputChanged)
+    ));
+    assert!(matches!(
+        review.prepared.publish(Vec::new()),
+        Err(ExportError::InputChanged)
+    ));
+    assert!(!request.destination.exists());
+
+    let review = review_export(&request, ManifestRevision::of(&bytes)).unwrap();
+    assert_eq!(review.prepared.publish(Vec::new()).unwrap(), expected);
+}
+
+#[test]
+fn reviewed_regeneration_checks_automatic_edits_and_conflict_choices_together() {
+    let scratch = tempfile::tempdir().unwrap();
+    let first = request(scratch.path(), "first");
+    project(&first.project_root);
+    let revision = ManifestRevision::of(&fs::read(first.project_root.join(MANIFEST_NAME)).unwrap());
+    publish_export(&first).unwrap();
+    let editable = first.destination.join(EDITABLE_SOURCE);
+    fs::write(first.destination.join("README.md"), b"reviewed readme\n").unwrap();
+    let mut next = request(scratch.path(), "second");
+    next.previous_export = Some(first.destination.clone());
+    let review = review_export(&next, revision).unwrap();
+    let [conflict] = review.plan.conflicts.as_slice() else {
+        panic!("expected one generated file conflict");
+    };
+    let choices = vec![ConflictResolution {
+        path: conflict.path.clone(),
+        observed_digest: conflict.observed_digest,
+        replacement_digest: conflict.replacement_digest,
+        decision: ConflictDecision::Keep,
+    }];
+    let edit = b"// Edit made after the previous export review\n";
+    fs::write(editable, edit).unwrap();
+    assert!(matches!(
+        review.prepared.publish(choices.clone()),
+        Err(ExportError::InputChanged)
+    ));
+    assert!(!next.destination.exists());
+
+    let refreshed = review_export(&next, revision).unwrap();
+    assert_ne!(refreshed.digest, review.digest);
+    refreshed.prepared.publish(choices).unwrap();
+    assert_eq!(
+        fs::read(next.destination.join(EDITABLE_SOURCE)).unwrap(),
+        edit
+    );
+    assert_eq!(
+        fs::read(next.destination.join("README.md")).unwrap(),
+        b"reviewed readme\n"
+    );
 }
 
 #[test]

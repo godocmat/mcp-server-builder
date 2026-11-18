@@ -36,6 +36,38 @@ pub struct ExportPlan {
     pub conflicts: Vec<ExportConflict>,
 }
 
+pub struct ExportReview {
+    pub plan: ExportPlan,
+    pub digest: ManifestRevision,
+    pub prepared: ReviewedExport,
+}
+
+/// The checked inputs and pinned destination for one reviewed publication.
+pub struct ReviewedExport {
+    request: ExportRequest,
+    destination: publication::Destination,
+    source_revision: ManifestRevision,
+    previous_digests: regenerate::TreeDigests,
+}
+
+impl ReviewedExport {
+    pub fn publish(
+        mut self,
+        resolutions: Vec<ConflictResolution>,
+    ) -> Result<GenerationRecord, ExportError> {
+        self.request.resolutions = resolutions;
+        let prepared = prepare(
+            &self.request,
+            &self.destination,
+            Some(ExpectedInputs {
+                source_revision: self.source_revision,
+                previous_digests: Some(&self.previous_digests),
+            }),
+        )?;
+        publish(prepared, &self.destination)
+    }
+}
+
 #[derive(Debug)]
 pub enum ExportError {
     InvalidProject(ManifestError),
@@ -86,26 +118,78 @@ pub fn read_resolutions(path: &Path) -> Result<Vec<ConflictResolution>, ExportEr
 
 /// Inspect a deterministic export and any edits requiring operator review.
 pub fn plan_export(request: &ExportRequest) -> Result<ExportPlan, ExportError> {
-    let prepared = prepare(request)?;
-    Ok(ExportPlan {
-        generation: prepared.generation,
-        conflicts: prepared.conflicts,
+    let destination = publication::Destination::open(&request.destination)?;
+    Ok(prepare(request, &destination, None)?.plan)
+}
+
+/// Inspect the exact saved revision and bind publication to the inspected inputs.
+pub fn review_export(
+    request: &ExportRequest,
+    expected_revision: ManifestRevision,
+) -> Result<ExportReview, ExportError> {
+    if !request.resolutions.is_empty() {
+        return Err(ExportError::InvalidResolution);
+    }
+    let destination = publication::Destination::open(&request.destination)?;
+    let prepared = prepare(
+        request,
+        &destination,
+        Some(ExpectedInputs {
+            source_revision: expected_revision,
+            previous_digests: None,
+        }),
+    )?;
+    let request = ExportRequest {
+        project_root: prepared.project_root,
+        destination: destination.path(),
+        previous_export: prepared.previous_export,
+        resolutions: Vec::new(),
+    };
+    let path_bytes = |path: &Path| path.as_os_str().as_encoded_bytes().to_vec();
+    let digest = serde_json::to_vec(&(
+        "mcp-server-builder.export-review.v1",
+        path_bytes(&request.project_root),
+        path_bytes(&request.destination),
+        request.previous_export.as_deref().map(path_bytes),
+        prepared.source_revision,
+        &prepared.previous_digests,
+        &prepared.plan,
+    ))
+    .map_err(|_| ExportError::Internal)?;
+    Ok(ExportReview {
+        plan: prepared.plan,
+        digest: ManifestRevision::of(&digest),
+        prepared: ReviewedExport {
+            request,
+            destination,
+            source_revision: prepared.source_revision,
+            previous_digests: prepared.previous_digests,
+        },
     })
 }
 
 /// Stage a complete export beside a new destination and recheck the source before publishing.
 pub fn publish_export(request: &ExportRequest) -> Result<GenerationRecord, ExportError> {
-    let prepared = prepare(request)?;
+    let destination = publication::Destination::open(&request.destination)?;
+    let prepared = prepare(request, &destination, None)?;
+    publish(prepared, &destination)
+}
+
+fn publish(
+    prepared: PreparedExport,
+    destination: &publication::Destination,
+) -> Result<GenerationRecord, ExportError> {
     let generation = prepared
+        .plan
         .generation
-        .ok_or(ExportError::Conflict(prepared.conflicts))?;
+        .ok_or(ExportError::Conflict(prepared.plan.conflicts))?;
     let mut files: BTreeMap<_, _> = prepared
         .files
         .into_iter()
         .map(|(path, file)| (path, file.bytes))
         .collect();
     files.insert(GENERATION_NAME.into(), pretty_json(&generation)?);
-    publication::publish(&prepared.destination, &files, || {
+    destination.publish(&files, || {
         let source =
             read_manifest(&prepared.project_root).map_err(|_| ExportError::InputChanged)?;
         if ManifestRevision::of(&source) != prepared.source_revision {
@@ -123,24 +207,35 @@ pub fn publish_export(request: &ExportRequest) -> Result<GenerationRecord, Expor
 }
 
 struct PreparedExport {
-    destination: PathBuf,
     project_root: PathBuf,
     previous_export: Option<PathBuf>,
     source_revision: ManifestRevision,
-    previous_digests: BTreeMap<String, ManifestRevision>,
+    previous_digests: regenerate::TreeDigests,
     files: OutputFiles,
-    generation: Option<GenerationRecord>,
-    conflicts: Vec<ExportConflict>,
+    plan: ExportPlan,
 }
 
-fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
-    let destination = publication::check_destination(&request.destination)?;
+struct ExpectedInputs<'a> {
+    source_revision: ManifestRevision,
+    previous_digests: Option<&'a regenerate::TreeDigests>,
+}
+
+fn prepare(
+    request: &ExportRequest,
+    destination: &publication::Destination,
+    expected: Option<ExpectedInputs<'_>>,
+) -> Result<PreparedExport, ExportError> {
     let project_root =
         publication::checked_root(&request.project_root).map_err(|error| match error {
             ExportError::Storage if missing(&request.project_root) => ExportError::ProjectMissing,
             error => error,
         })?;
     let source = read_manifest(&project_root)?;
+    if let Some(expected) = &expected
+        && ManifestRevision::of(&source) != expected.source_revision
+    {
+        return Err(ExportError::InputChanged);
+    }
     let manifest = parse_manifest(&source).map_err(ExportError::InvalidProject)?;
     let source_revision = manifest.revision();
     let mut canonical =
@@ -155,10 +250,16 @@ fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
         .map(publication::checked_root)
         .transpose()?;
     let (previous_digests, conflicts) = if let Some(root) = &previous_export {
-        if destination.starts_with(root) {
+        if destination.path().starts_with(root) {
             return Err(ExportError::UnsafePath);
         }
-        regenerate::apply(root, &normalized, &mut files, &request.resolutions)?
+        regenerate::apply(
+            root,
+            &normalized,
+            &mut files,
+            &request.resolutions,
+            expected.and_then(|inputs| inputs.previous_digests),
+        )?
     } else {
         if !request.resolutions.is_empty() {
             return Err(ExportError::InvalidResolution);
@@ -172,14 +273,15 @@ fn prepare(request: &ExportRequest) -> Result<PreparedExport, ExportError> {
         None
     };
     Ok(PreparedExport {
-        destination,
         project_root,
         previous_export,
         source_revision,
         previous_digests,
         files,
-        generation,
-        conflicts,
+        plan: ExportPlan {
+            generation,
+            conflicts,
+        },
     })
 }
 
