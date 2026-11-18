@@ -4,18 +4,19 @@
 
 | Component | Version | Role |
 | --- | --- | --- |
-| Standalone scaffolding | 1.0.0 (Cargo package 0.1.0) | Startup, operator configuration, handler assembly and tests |
+| Standalone scaffolding | 1.1.0 (Cargo package 0.1.0) | Startup, operator configuration, handler assembly and tests |
 | `builder-project` | 0.1.0 | Portable manifest parsing, validation and runtime projection |
 | `mcp-policy` | 0.1.0 | Access checks, execution limits and redaction |
 | `mcp-runtime` | 0.1.0 | Capability discovery and execution |
 | `mcp-starter-adapters` | 0.1.0 | REST and read-only file handlers |
 | `mcp-transport` | 0.1.0 | Stdio transport for MCP 2026-07-28 and 2025-11-25 |
 
-The project proposes Apache-2.0 for the builder-owned bundled runtime and
-scaffolding. The owners' approval of the generated-code and runtime terms and
-the redistribution review are pending. This inventory records proposed terms
-and third-party provenance. Project inputs and customer-authored sources follow
-their owners' terms.
+MCP Server Builder provides the bundled runtime and original server scaffolding
+under Apache-2.0. Project manifests, data, and project-authored code follow their
+owners' terms. Keep the builder attribution and license with redistributed
+copies of the bundled source or compiled runtime.
+[Builder license](licenses/mcp-server-builder/LICENSE) ·
+[Builder attribution](licenses/mcp-server-builder/NOTICE)
 
 ## Third-party inputs
 

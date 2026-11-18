@@ -3,7 +3,7 @@ use builder_project::ValidatedManifest;
 use crate::FileOwner;
 
 pub(crate) const RUNTIME_VERSION: &str = "0.1.0";
-pub(crate) const TEMPLATE_VERSION: &str = "1.0.0";
+pub(crate) const TEMPLATE_VERSION: &str = "1.1.0";
 
 pub(crate) struct RenderedFile {
     pub path: &'static str,
@@ -49,6 +49,16 @@ pub(crate) fn render(_manifest: &ValidatedManifest) -> Vec<RenderedFile> {
         "rust-toolchain.toml",
         FileOwner::Generator,
         include_str!("../../../rust-toolchain.toml"),
+    ));
+    files.push(file(
+        "licenses/mcp-server-builder/LICENSE",
+        FileOwner::Generator,
+        include_str!("../../../LICENSE"),
+    ));
+    files.push(file(
+        "licenses/mcp-server-builder/NOTICE",
+        FileOwner::Generator,
+        include_str!("../../../NOTICE"),
     ));
     template!(Project, "src/handlers.rs");
     shared!(

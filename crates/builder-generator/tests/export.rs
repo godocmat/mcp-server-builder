@@ -13,6 +13,8 @@ use serde_json::json;
 
 const EDITABLE_SOURCE: &str = "src/handlers.rs";
 const RECORD: &str = "generation.json";
+const BUILDER_LICENSE: &str = "licenses/mcp-server-builder/LICENSE";
+const BUILDER_NOTICE: &str = "licenses/mcp-server-builder/NOTICE";
 
 fn project(root: &Path) {
     fs::create_dir(root).unwrap();
@@ -136,6 +138,21 @@ fn preview_and_repeat_publish_use_the_same_normalized_inputs_and_record() {
     assert_eq!(publish_export(&second).unwrap(), record);
     let first_files = inventory(&first.destination);
     assert_eq!(first_files, inventory(&second.destination));
+    for (path, upstream_text) in [
+        (BUILDER_LICENSE, include_str!("../../../LICENSE")),
+        (BUILDER_NOTICE, include_str!("../../../NOTICE")),
+    ] {
+        assert_eq!(
+            first_files[path],
+            upstream_text.replace("\r\n", "\n").as_bytes()
+        );
+        assert!(
+            record
+                .files
+                .iter()
+                .any(|file| { file.path == path && file.owner == FileOwner::Generator })
+        );
+    }
     assert_eq!(
         serde_json::from_slice::<GenerationRecord>(&first_files[RECORD]).unwrap(),
         record
@@ -277,6 +294,61 @@ fn regeneration_preserves_reviewed_edits_and_refuses_stale_choices() {
     third.previous_export = Some(next.destination);
     assert_eq!(publish_export(&third).unwrap(), record);
     assert_eq!(inventory(&third.destination), files);
+}
+
+#[test]
+fn regeneration_from_before_licensing_keeps_project_terms() {
+    let scratch = tempfile::tempdir().unwrap();
+    let first = request(scratch.path(), "first");
+    project(&first.project_root);
+    let mut previous = publish_export(&first).unwrap();
+
+    // Model an older generation record and an author who added project terms.
+    previous.template_version = "1.0.0".into();
+    for path in [BUILDER_LICENSE, BUILDER_NOTICE] {
+        fs::remove_file(first.destination.join(path)).unwrap();
+        previous.files.retain(|file| file.path != path);
+    }
+    fs::write(
+        first.destination.join(RECORD),
+        serde_json::to_vec_pretty(&previous).unwrap(),
+    )
+    .unwrap();
+    let cargo = first.destination.join("Cargo.toml");
+    let project_cargo = fs::read_to_string(&cargo).unwrap().replacen(
+        "[package]\n",
+        "[package]\nlicense = \"MIT\"\n",
+        1,
+    );
+    fs::write(cargo, &project_cargo).unwrap();
+    let project_license = b"License for the project author's work\n";
+    fs::write(first.destination.join("LICENSE"), project_license).unwrap();
+
+    let mut next = request(scratch.path(), "next");
+    next.previous_export = Some(first.destination);
+    let plan = plan_export(&next).unwrap();
+    let [cargo, license] = plan.conflicts.as_slice() else {
+        panic!("expected to review the project manifest and license");
+    };
+    assert_eq!(cargo.path, "Cargo.toml");
+    assert_eq!(license.path, "LICENSE");
+    assert!(license.replacement_digest.is_none());
+    next.resolutions = [cargo, license]
+        .into_iter()
+        .map(|conflict| ConflictResolution {
+            path: conflict.path.clone(),
+            observed_digest: conflict.observed_digest,
+            replacement_digest: conflict.replacement_digest,
+            decision: ConflictDecision::Keep,
+        })
+        .collect();
+    let record = publish_export(&next).unwrap();
+    let files = inventory(&next.destination);
+    assert_ne!(record.template_version, previous.template_version);
+    assert_eq!(files["Cargo.toml"], project_cargo.as_bytes());
+    assert_eq!(files["LICENSE"], project_license);
+    assert!(files.contains_key(BUILDER_LICENSE));
+    assert!(files.contains_key(BUILDER_NOTICE));
 }
 
 #[test]

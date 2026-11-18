@@ -92,4 +92,13 @@ file ownership and hashes, along with the generator, template, runtime and
 protocol versions. Keep the operator configuration outside the portable
 project and review it for each manifest revision.
 
-[Distribution status and third-party inventory](THIRD-PARTY-NOTICES.md)
+## Licensing
+
+MCP Server Builder’s bundled runtime and original scaffolding use Apache-2.0.
+Project manifests, data, and project-authored code follow the terms chosen by
+their owners. For redistribution, choose the terms for your project and include
+the builder license, attribution, and applicable dependency notices. The
+bundled Cargo packages declare their own Apache-2.0 license.
+[Builder license](licenses/mcp-server-builder/LICENSE) ·
+[Builder attribution](licenses/mcp-server-builder/NOTICE) ·
+[Third-party notices](THIRD-PARTY-NOTICES.md)
