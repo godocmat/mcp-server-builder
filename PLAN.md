@@ -2,22 +2,24 @@
 
 12 November 2026
 
-MCP Server Builder will let developers create a server visually, exercise it through a real MCP client, and export a maintainable Rust project that builds and runs independently. This roadmap starts with design and gives each implementation phase an observable exit criterion.
+MCP Server Builder lets developers create a local MCP server, exercise it through a real MCP client, and export a Rust project that builds and runs independently. The Windows x64 release, CLI, and first-party export code are free and open source under Apache-2.0. They work without product accounts or entitlements. [Current release](README.md)
 
 Use the [task breakdown](TASKS.md) to dispatch work in fresh Codex chats and worktrees. The [Phase 0 handoff](PROGRESS.md), [decisions](DECISIONS.md) and [acceptance traceability](docs/traceability.md) define the starting design and evidence gates.
 
 ## Release scope
 
+The local milestone describes the current release. The v1 proposal and later phases below preserve the original roadmap and its acceptance criteria. Those features are outside the current release.
+
 | Milestone | Scope | Acceptance workflow |
 | --- | --- | --- |
 | **Local MVP** | Windows desktop pilot and a shared Rust CLI. Create, open, validate, and export a versioned project. Configure a REST tool, a read-only file resource and resource template, and a prompt. Run the project over stdio, inspect a trace, and replay a saved fixture test. | On a clean Windows machine, create the sample project in the GUI, run its tests from the CLI, then compile and invoke its exported server from a separate directory using a generic MCP client. Verify that invalid input and a denied permission produce actionable errors. |
-| **Commercial v1** | Complete GUI and CLI project workflows, including rename, duplicate, import, migration, and client configuration export. Manage server metadata, transports, dependencies, and environment variables. Add PostgreSQL, SQLite, Git, custom Rust, and policy-bound external command templates. Support stdio and authenticated Streamable HTTP, full playground and audit workflows, Windows/macOS/Linux packages on verified targets, and Docker and self-hosted Linux deployment. | A new user can install the builder, configure and test a server, export and build it, deploy it to clean Linux infrastructure, and connect with the supported client configurations. CI and the release candidate supply evidence for the workflow. |
+| **Historical v1 proposal** | Complete GUI and CLI project workflows, including rename, duplicate, import, migration, and client configuration export. Manage server metadata, transports, dependencies, and environment variables. Add PostgreSQL, SQLite, Git, custom Rust, and policy-bound external command templates. Support stdio and authenticated Streamable HTTP, full playground and audit workflows, Windows/macOS/Linux packages on verified targets, and Docker and self-hosted Linux deployment. | A new user can install the builder, configure and test a server, export and build it, deploy it to clean Linux infrastructure, and connect with the supported client configurations. CI and the release candidate supply evidence for the workflow. |
 
-V1 uses a fixed catalog and a scoped client matrix. Later candidates include standalone GET/resumption for legacy Streamable HTTP, the separate legacy HTTP+SSE transport, change subscriptions, optional extensions such as Tasks and MCP Apps, cloud-specific deployment adapters, hosted builder infrastructure and centralized team administration. PostgreSQL as a tool integration is in v1. Payment processing requires separate authorization and credentials. [Protocol and licensing decisions](DECISIONS.md)
+The historical v1 scope proposed a fixed catalog, a scoped client matrix, and a PostgreSQL tool integration. Later candidates included standalone GET/resumption for legacy Streamable HTTP, the separate legacy HTTP+SSE transport, change subscriptions, optional extensions such as Tasks and MCP Apps, cloud-specific deployment adapters, hosted infrastructure, and centralized team administration. [Protocol and licensing decisions](DECISIONS.md)
 
 ## Protocol and client baseline
 
-- Use **MCP 2026-07-28** as the primary target and **2025-11-25** as the compatibility floor. Use modern per-request metadata, `server/discover` and HTTP header validation, plus legacy initialization, capability negotiation and issued Streamable HTTP sessions. The local MVP ships stdio. M4 verifies loopback HTTP for both revisions. Commercial v1 adds authenticated Streamable HTTP. [Transport contract](docs/contracts.md#mcp-transport-and-execution) · [D1 compatibility evidence](docs/mcp-compatibility.md)
+- Use **MCP 2026-07-28** as the primary target and **2025-11-25** as the compatibility floor. Use modern per-request metadata, `server/discover` and HTTP header validation, plus legacy initialization, capability negotiation and issued Streamable HTTP sessions. The local release ships stdio. M4 verifies loopback HTTP for both revisions. The historical v1 design proposed authenticated Streamable HTTP. [Transport contract](docs/contracts.md#mcp-transport-and-execution) · [D1 compatibility evidence](docs/mcp-compatibility.md)
 - Evaluate **`rmcp` 3.9.0** as the initial Rust SDK candidate. Pin the tested version after verifying the supported methods, schema handling, cancellation, and both protocol revisions over real stdio and loopback HTTP. Keep SDK-specific types at the transport boundary. [Official Rust SDK release](https://github.com/modelcontextprotocol/rust-sdk/releases/tag/rmcp-v3.9.0)
 - Use the HTTP server as an OAuth resource server backed by an external authorization server. Trial Logto OSS with a pre-registered public PKCE client first and Keycloak if the required flows fail. V3/V4 verify discovery, the authorization challenge, token and scope checks, resource isolation and refresh. V10 and R4 verify registration flows in the actual clients. [OAuth and client decision](DECISIONS.md#adr-007--external-oauth-and-client-profiles)
 
@@ -41,7 +43,7 @@ For each supported combination, the release matrix records the client version, O
 
 **Positioning hypothesis.** Developers and internal platform teams will value one workflow for configuring non-OpenAPI integrations, reviewing permissions, replaying tests, and shipping independently editable Rust. In discovery, time representative users from a clean install to the first successful tool call. Compare project portability, policy visibility, test replay, and deployment effort across the documented alternatives. Record observed limitations separately from claims that still need evidence.
 
-**Pricing hypotheses.** Free Developer covers local authoring, testing, and source export. Professional adds advanced automation or template packs. Team and Enterprise may pay for centralized policy, audit retention, and support. Validate willingness to pay with target users and protect access to existing projects, exported servers, and security controls during entitlement outages.
+**Historical pricing hypotheses.** Early research considered optional automation, template packs, team policy, audit retention, and support. The current release offers the full shipped feature set free of charge. [Discovery notes](docs/commercial-model.md#packaging-and-pricing-hypotheses)
 
 ## Architecture to validate
 

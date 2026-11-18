@@ -1,6 +1,8 @@
 # MCP Server Builder commercial model
 
-Phase 0 draft · 12 November 2026 · [Product requirements](requirements.md)
+Historical Phase 0 research · 12 November 2026 · [Product requirements](requirements.md)
+
+The builder and its first-party exports are free and open source under Apache-2.0. Shipped features work without accounts, subscriptions, or entitlements. The offers and prices below were research proposals. [Current release](../README.md)
 
 ## Competitor workflows
 
@@ -26,7 +28,7 @@ Initial hypotheses for a pilot decision are that at least six of eight builders 
 
 ## Packaging and pricing hypotheses
 
-These are candidate offers and USD price points for research. The PRD defines the v1 feature and acceptance scope. [Commercial v1 requirements](requirements.md#commercial-v1)
+The original research considered these offers and USD price points. The requirements record the historical v1 scope. [Commercial v1 requirements](requirements.md#commercial-v1)
 
 | Offer | Proposed value | Price to test |
 | --- | --- | --- |
@@ -35,15 +37,14 @@ These are candidate offers and USD price points for research. The PRD defines th
 | Team | Shared policy distribution and centralized audit retention after those features have a validated workflow. | Test per-author pricing against a $120 monthly team bundle for up to five authors. |
 | Enterprise | Procurement and support for self-hosted rollout, including response commitments and assisted upgrades. | Test annual contract interest and budget range after identifying the buyer and support needs. |
 
-Use the workflow pilot to learn which capabilities create repeat use, then show consistent packages at varied price points in separate buyer interviews. Record the current alternative, the paid capability the buyer would use, the purchasing owner, and a concrete budget or procurement step. Treat three independent, non-binding paid-pilot commitments at a tested price as an initial signal to refine the offer. Revisit the package when buyers value only core capabilities or require features outside the planned release. Payment processing and account changes require separate authorization.
+Use the workflow pilot to learn which capabilities create repeat use, then show consistent packages at varied price points in separate buyer interviews. Record the current alternative, the paid capability the buyer would use, the purchasing owner, and a concrete budget or procurement step. Treat three independent, non-binding paid-pilot commitments at a tested price as an initial signal to refine the offer. Revisit the package when buyers value only core capabilities or require features outside the planned release. The discovery plan left payment processing and account changes for separate product decisions.
 
 ## Licensing and continuity requirements
 
-- Keep licensing in the builder. Limit entitlement decisions to optional paid builder features. Local project access, editing, validation, testing, recovery, source export, and security enforcement remain available when an entitlement cannot be verified. Keep assets needed to work with existing projects accessible.
-- Export source and runtime dependencies that build and run without the builder or a licensing endpoint. Publish the terms for editing and distributing exports alongside applicable notices and version information. Product and platform need to verify the builder license, generated-code terms, and redistribution terms for the bundled runtime and dependencies before distribution.
-- Exercise missing, expired, and unreachable entitlement states using the same saved project. Confirm the project still opens, the fixture still runs, denied actions still fail, and a previously exported server builds and runs with the licensing service unavailable. [Continuity acceptance check](requirements.md#commercial-v1)
+- Project authoring, validation, saved-fixture replay, recovery, and source export work offline.
+- Standalone exports build and run without an installed builder or licensing endpoint. The builder and first-party export code use Apache-2.0. Project inputs, user edits, and third-party dependencies follow their applicable terms. [License decision](../DECISIONS.md#adr-006--standalone-generation-and-license-continuity)
 
-## Decisions for D5
+## Historical decisions for D5
 
 - Set the pilot cohort, reference fixtures, comparison versions, and success thresholds. Use the results to prioritize workflow improvements and decide whether to test a Professional bundle.
 - Assign ownership of entitlement continuity and export licensing. Confirm which runtime and templates can be redistributed and how customers receive security fixes for previously generated code.

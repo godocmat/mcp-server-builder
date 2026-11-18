@@ -2,7 +2,7 @@
 
 12 November 2026 · D5 Phase 0 · [Architecture](docs/architecture.md) · [Contracts](docs/contracts.md) · [Implementation backlog](TASKS.md)
 
-These records select the implementation starting point. A selected contract defines the intended product behavior. Candidate dependencies and support profiles require the named evidence before promotion to a released claim. Record the tested input, commit, result and any superseding decision as evidence arrives.
+These records preserve the implementation decisions and candidate support profiles. The README describes the current free, open-source Windows x64 release. The v1 designs in this record remain historical proposals for additional features and platforms. [Current release](README.md)
 
 ## ADR-001 · Shared workspace and application services
 
@@ -42,11 +42,11 @@ Bind credential names to one selected source. Start with explicit environment or
 
 ## ADR-006 · Standalone generation and license continuity
 
-**Status** Distribution model selected. License terms proposed for owner review. Bundle source for the versioned runtime and server transport as Cargo path dependencies. Ship locked inputs, real handlers, standalone tests and provenance. Regeneration stages a new output, carries reviewed project-owned code forward and flags edited generated files. A prior export remains buildable independently. Record runtime and template versions, publish security fix notices and provide regeneration and upgrade instructions with fixes. [Generation contract](docs/contracts.md#standalone-output-and-regeneration)
+**Status** Accepted. Bundle source for the versioned runtime and server transport as Cargo path dependencies. Ship locked inputs, handlers, standalone tests and provenance. Regeneration stages a new output, carries reviewed project-owned code forward and flags edited generated files. A prior export remains buildable independently. Record runtime and template versions and provide regeneration and upgrade instructions with fixes. [Generation contract](docs/contracts.md#standalone-output-and-regeneration)
 
-Propose Apache-2.0 for builder-owned bundled runtime and emitted scaffolding, with third-party notices and retained terms. Product owns the builder distribution license and the final generated-code and runtime grant. Project inputs and customer-authored sources follow their owners' terms. M6 inventories the bundled components. V9 and R2 record the final dependency and license inventory and SBOM. R5 requires the approved redistribution terms and notices before public distribution. [Commercial licensing requirements](docs/commercial-model.md#licensing-and-continuity-requirements)
+Apache-2.0 covers the builder and the first-party runtime and scaffolding in exports. Project inputs and user-authored sources follow their owners' terms. Third-party components retain their own license terms and notices. [License](LICENSE) · [Notice](NOTICE)
 
-Keep entitlements in the builder and restrict them to optional paid features. Core project access, editing, validation, testing, recovery, security and source export work with missing, expired or unreachable entitlements. V13 owns continuity through the shared services and R5 verifies a previously exported server with the builder and licensing endpoint absent. Use the D2 cohort, reference project and success thresholds at the M10 pilot debrief. Product owns measured positioning and price hypotheses, with a separate decision for paid offers, hosted services and payment integration. [Pilot design and price hypotheses](docs/commercial-model.md#positioning-hypotheses)
+All shipped features work without an account, subscription, entitlement check, or license service. A standalone export builds and runs independently of the builder. The earlier pricing and entitlement proposals are historical. [Product continuity](docs/commercial-model.md#licensing-and-continuity-requirements)
 
 ## ADR-007 · External OAuth and client profiles
 
@@ -74,7 +74,7 @@ Pre-register first for each candidate that supports it. Trial CIMD when a select
 | Patched Ubuntu 24.04 LTS Desktop amd64 | `.deb` with CLI on stock GNOME and the Noble WebKitGTK baseline. F2 builds on `ubuntu-24.04` x64. R2/R4/R5 verify dependencies, desktop session, headless credential fallback and native install and upgrade. |
 | Ubuntu 24.04 LTS Server amd64 | Generated locked systemd binary or `linux/amd64` OCI image and Compose inputs. R1 and R5 verify both profiles on clean server hosts. |
 
-Where authorized signing credentials are available, use timestamped Authenticode for Windows and Developer ID signing, notarization and stapling for macOS. R2 verifies the signatures and trust of downloaded artifacts where applicable. The Windows pilot may use an unsigned, checksum-verified package in a restricted test channel with signing status recorded. Publish SHA-256 checksums or immutable digests, SBOMs and signing status for Linux packages and images, with a verified signature where an authorized signing channel is available. R5 verifies the documented install and upgrade paths on clean targets and records the release disposition for each target with missing signing or installation evidence. [D4 packaging and signing plan](docs/deployment.md#build-webview-and-signing-constraints)
+Where authorized signing credentials are available, use timestamped Authenticode for Windows and Developer ID signing, notarization and stapling for macOS. R2 verifies the signatures and trust of downloaded artifacts where applicable. The Windows x64 release uses an unsigned per-user installer with published SHA-256 checksums and signing status. Publish SHA-256 checksums or immutable digests, SBOMs and signing status for Linux packages and images, with a verified signature where an authorized signing channel is available. R5 verifies the documented install and upgrade paths on clean targets and records the release disposition for each target with missing signing or installation evidence. [D4 packaging and signing plan](docs/deployment.md#build-webview-and-signing-constraints)
 
 ## ADR-009 · Ingress, rollout and recovery
 
