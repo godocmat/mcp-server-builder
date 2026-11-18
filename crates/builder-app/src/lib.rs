@@ -10,7 +10,7 @@ mod project_files;
 mod reply;
 mod smoke;
 
-pub use builder_project::{ManifestRevision, ProjectDocument, SchemaVersion};
+pub use builder_project::{ManifestRevision, ProjectDocument, ScenarioMode, SchemaVersion};
 pub use diagnostic::{Diagnostic, DiagnosticCode, DiagnosticDetails, Severity};
 pub use generation::{
     ConflictDecision, ConflictResolution, ExportConflict, ExportPlan, FileOwner, GeneratedFile,
@@ -19,7 +19,7 @@ pub use generation::{
 };
 pub use project::{
     ProjectLocation, ProjectRecovery, ProjectService, ProjectSnapshot, ProjectStatus,
-    ProjectSummary, ProjectValidation, project_read_draft, project_validate,
+    ProjectSummary, ProjectValidation, project_read_draft, project_read_draft_file, project_validate,
     project_validate_document, project_validate_root,
 };
 pub use project_files::{RecoveryCandidate, RecoveryKind};

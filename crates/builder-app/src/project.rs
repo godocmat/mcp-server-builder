@@ -150,19 +150,37 @@ impl ProjectService {
 
     pub async fn open(&self, location: ProjectLocation) -> Reply<ProjectSnapshot> {
         let mut operation = Operation::new();
-        let result = async {
-            let location = self.resolve(location).await?;
-            let (root, manifest) = on_disk(move || {
-                let root = project_files::canonical_root(&location.root)?;
-                let manifest = read_valid(&root, location.project_id())?;
-                location.check_identity(&root, &manifest)?;
-                Ok((root, manifest))
-            })
-            .await?;
-            Ok(self.snapshot(&mut operation, &root, manifest).await)
-        }
-        .await;
+        let result = match self.read_location(location).await {
+            Ok((root, manifest)) => Ok(self.snapshot(&mut operation, &root, manifest).await),
+            Err(error) => Err(error),
+        };
         operation.finish(result)
+    }
+
+    /// Inspect the validated manifest without registering or updating the project.
+    pub async fn inspect(&self, location: ProjectLocation) -> Reply<ProjectSnapshot> {
+        let result = self
+            .read_location(location)
+            .await
+            .map(|(root, manifest)| {
+                let id = registration_id(&root, manifest.document().project_id);
+                make_snapshot(&root, id, manifest)
+            });
+        Operation::new().finish(result)
+    }
+
+    async fn read_location(
+        &self,
+        location: ProjectLocation,
+    ) -> Result<(PathBuf, ValidatedManifest), Failure> {
+        let location = self.resolve(location).await?;
+        on_disk(move || {
+            let root = project_files::canonical_root(&location.root)?;
+            let manifest = read_valid(&root, location.project_id())?;
+            location.check_identity(&root, &manifest)?;
+            Ok((root, manifest))
+        })
+        .await
     }
 
     /// Prepare an inert managed preview from the current saved project.
@@ -377,12 +395,16 @@ impl ProjectService {
                 },
             );
         }
-        ProjectSnapshot {
-            registration_id: id,
-            root_display_path: display_path(root),
-            revision,
-            document: manifest.into_document(),
-        }
+        make_snapshot(root, id, manifest)
+    }
+}
+
+fn make_snapshot(root: &Path, id: Uuid, manifest: ValidatedManifest) -> ProjectSnapshot {
+    ProjectSnapshot {
+        registration_id: id,
+        root_display_path: display_path(root),
+        revision: manifest.revision(),
+        document: manifest.into_document(),
     }
 }
 
@@ -400,6 +422,18 @@ pub fn project_read_draft(bytes: &[u8]) -> Reply<ProjectDocument> {
             .map(ValidatedManifest::into_document)
             .map_err(Failure::manifest),
     )
+}
+
+/// Read a bounded draft from a regular file using the project storage checks.
+pub async fn project_read_draft_file(path: PathBuf) -> Reply<ProjectDocument> {
+    let result = on_disk(move || {
+        project_files::read(&path)?
+            .validate()
+            .map(ValidatedManifest::into_document)
+            .map_err(Failure::manifest)
+    })
+    .await;
+    Operation::new().finish(result)
 }
 
 pub fn project_validate_document(document: ProjectDocument) -> Reply<ProjectValidation> {
