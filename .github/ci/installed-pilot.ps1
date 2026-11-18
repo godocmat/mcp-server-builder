@@ -40,26 +40,6 @@ if ($cliHash -ne (Get-FileHash -LiteralPath (Join-Path $release 'mcp-builder.exe
     throw 'The installed CLI does not match the release build.'
 }
 
-function Get-PilotWebDriver {
-    $webviewId = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-    $version = @(
-        Get-ItemPropertyValue -LiteralPath "HKCU:/Software/Microsoft/EdgeUpdate/Clients/$webviewId" -Name pv -ErrorAction SilentlyContinue
-        Get-ItemPropertyValue -LiteralPath "HKLM:/SOFTWARE/WOW6432Node/Microsoft/EdgeUpdate/Clients/$webviewId" -Name pv -ErrorAction SilentlyContinue
-    ) | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -ne '0.0.0.0' } | Select-Object -First 1
-    if (!$version) { throw 'The installed Evergreen WebView2 version is unavailable.' }
-    $archive = Join-Path $scratch 'webview-driver.zip'
-    $directory = Join-Path $scratch 'webview-driver'
-    Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $archive
-    Expand-Archive -LiteralPath $archive -DestinationPath $directory
-    $driver = Join-Path $directory 'msedgedriver.exe'
-    $verified = Get-AuthenticodeSignature -LiteralPath $driver
-    if ($verified.Status -ne 'Valid' -or $verified.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-        throw 'The downloaded WebView driver did not have a valid Microsoft signature.'
-    }
-    Write-Host "Microsoft WebView2 and its Edge WebDriver: $version"
-    return $driver
-}
-
 try {
     & $cli --version
     # Register the portable catalog with the same profile the installed desktop opens.
@@ -67,9 +47,8 @@ try {
     if (!$registration.ok -or $registration.data.document.name -ne 'Catalog sample') {
         throw 'The installed CLI could not register the reference catalog.'
     }
+    & (Join-Path $PSScriptRoot 'installed-windows-uia.ps1') -Desktop $desktop
     node (Join-Path $PSScriptRoot 'standalone-smoke.mjs') $cli
-    $driver = Get-PilotWebDriver
-    node (Join-Path $PSScriptRoot 'installed-webview.mjs') $driver $desktop (Join-Path $scratch 'webview')
 } finally {
     $removal = Start-Process -FilePath $uninstall -ArgumentList '/S' -WindowStyle Hidden -Wait -PassThru
     if ($removal.ExitCode -ne 0 -or (Test-Path -LiteralPath $desktop) -or !(Test-Path -LiteralPath $manifest)) {

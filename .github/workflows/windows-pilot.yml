@@ -46,7 +46,7 @@ jobs:
       - name: Build unsigned pilot from the checked-out commit
         run: ./apps/desktop/scripts/build-windows-pilot.ps1
 
-      - name: Install, replay, build an export, and uninstall
+      - name: Install, check the GUI, replay, build an export, and uninstall
         run: ./.github/ci/installed-pilot.ps1
 
       - name: Verify lockfiles stayed intact
