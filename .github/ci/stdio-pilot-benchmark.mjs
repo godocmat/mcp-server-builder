@@ -9,10 +9,11 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 
-const [cliPath, reportPath] = process.argv.slice(2);
-assert.ok(cliPath && reportPath, "Usage: node stdio-pilot-benchmark.mjs <release-cli> <report.json>");
+const [cliPath, reportPath, prebuiltPath] = process.argv.slice(2);
+assert.ok(cliPath && reportPath, "Usage: node stdio-pilot-benchmark.mjs <release-cli> <report.json> [<prebuilt-release-server>]");
 assert.equal(process.platform, "win32", "This benchmark measures the Windows pilot working set.");
-const cli = resolve(cliPath);
+const cli = await realpath(resolve(cliPath));
+const prebuilt = prebuiltPath ? await realpath(resolve(prebuiltPath)) : undefined;
 const temporaryParent = await realpath(tmpdir());
 const scratch = await realpath(await mkdtemp(join(temporaryParent, "mcp-stdio-benchmark-")));
 assert.equal(dirname(scratch), temporaryParent);
@@ -22,7 +23,7 @@ const target = resolve(process.env.CARGO_TARGET_DIR ?? join(scratch, "target"));
 const manifest = join(exportDir, "mcp-project.json");
 const config = join(scratch, "runtime-config.json");
 const triple = "x86_64-pc-windows-msvc";
-const binary = join(target, triple, "release", "mcp-standalone-server.exe");
+const binary = prebuilt ?? join(target, triple, "release", "mcp-standalone-server.exe");
 const sample = new URL("../../crates/builder-project/tests/fixtures/catalog-v1.json", import.meta.url);
 const modern = "2026-07-28";
 const legacy = "2025-11-25";
@@ -117,8 +118,9 @@ async function measure(revision) {
         }
         await delay(60_000);
         assert.ok(Number.isSafeInteger(child.pid) && child.pid > 0);
-        idleWorkingSetBytes = Number(execFileSync("pwsh", [
-          "-NoProfile", "-Command", `(Get-Process -Id ${child.pid} -ErrorAction Stop).WorkingSet64`,
+        idleWorkingSetBytes = Number(execFileSync("powershell.exe", [
+          "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+          `(Get-Process -Id ${child.pid} -ErrorAction Stop).WorkingSet64`,
         ], { encoding: "utf8", timeout: 8_000, windowsHide: true }).trim());
         assert.ok(Number.isSafeInteger(idleWorkingSetBytes) && idleWorkingSetBytes > 0);
       }
@@ -154,9 +156,11 @@ try {
   await mkdir(cwd);
   await writeFile(join(cwd, "mcp-project.json"), JSON.stringify(project));
   execFileSync(cli, ["generate", cwd, "--out", exportDir], { stdio: "inherit", windowsHide: true });
-  execFileSync("cargo", ["build", "--release", "--locked", "--target", triple, "--target-dir", target], {
-    cwd: exportDir, stdio: "inherit", windowsHide: true,
-  });
+  if (!prebuilt) {
+    execFileSync("cargo", ["build", "--release", "--locked", "--target", triple, "--target-dir", target], {
+      cwd: exportDir, stdio: "inherit", windowsHide: true,
+    });
+  }
   const manifestRevision = sha256(await readFile(manifest));
   await writeFile(config, JSON.stringify({
     configVersion: 1, kind: "stdio", manifestRevision, approvedGrantIds: ["catalog_read"],
@@ -166,7 +170,9 @@ try {
     platform: release(), arch: process.arch, cpu: cpus()[0].model, logicalCpus: cpus().length,
     memoryBytes: totalmem(), fixtureDigest: sha256(fixture), manifestRevision,
     cliDigest: sha256(await readFile(cli)),
-    serverDigest: sha256(await readFile(binary)), transport: "stdio",
+    serverDigest: sha256(await readFile(binary)),
+    serverBuild: prebuilt ? "prebuilt" : "builtForRun",
+    transport: "stdio",
     profiles: [await measure(modern), await measure(legacy)],
   };
   await writeFile(resolve(reportPath), JSON.stringify(report, null, 2) + "\n", { flag: "wx" });

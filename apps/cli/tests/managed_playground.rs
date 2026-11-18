@@ -1,5 +1,8 @@
 #![cfg(windows)]
 
+#[path = "managed_playground/stop_benchmark.rs"]
+mod stop_benchmark;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
