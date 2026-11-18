@@ -29,7 +29,7 @@ Pop-Location
 
 The script builds the release CLI and desktop from the same checkout. It stages the CLI for Tauri and creates an unsigned per-user NSIS installer under `x86_64-pc-windows-msvc/release/bundle/nsis` in the Cargo target directory. Pass `-TargetDirectory` to choose the output location. The Windows package places `mcp-builder.exe` beside the desktop executable. That copy serves as the managed playground worker and can also be invoked directly from PowerShell. The bundled CLI follows the same approval requirements as a source build. [CLI workflow](local-cli.md)
 
-On the Windows acceptance VM, record the installer SHA-256, signing status, and WebView2 version before completing the pilot workflow. The installer uses Evergreen WebView2 when present and downloads Microsoft's bootstrapper when the runtime is missing. [Windows pilot test plan](testing.md#windows-pilot)
+On the Windows acceptance VM, record the installer SHA-256, signing status, and WebView2 version before completing the pilot workflow. The installer uses Evergreen WebView2 when present and downloads Microsoft's bootstrapper when the runtime is missing. [Windows pilot checklist](windows-pilot.md)
 
 ## Build, WebView and signing constraints
 

@@ -12,7 +12,7 @@
     "build": "ng build",
     "test": "ng test --watch=false",
     "test:coverage": "ng test --watch=false --coverage",
-    "format:check": "prettier --check package.json angular.json \"tsconfig*.json\" \"ui/src/**/*.{ts,html,css}\" \"src-tauri/{tauri.conf.json,capabilities/*.json}\"",
+    "format:check": "prettier --check package.json angular.json \"tsconfig*.json\" \"ui/src/**/*.{ts,html,css}\" \"src-tauri/{tauri*.conf.json,capabilities/*.json}\"",
     "tauri": "tauri"
   },
   "dependencies": {
