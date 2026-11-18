@@ -56,7 +56,10 @@ assert.equal(success.stdout.trim(), `Workspace smoke passed (builder ${builderVe
 assert.equal(success.stderr, "");
 const rejection = run(["smoke", "--contract-version", invalidVersion], 2);
 assert.equal(rejection.stdout, "");
-assert.deepEqual(rejection.stderr.trim().split(/\r?\n/), [diagnostic.message, diagnostic.action]);
+assert.deepEqual(rejection.stderr.trim().split(/\r?\n/), [
+  `${diagnostic.field}  ${diagnostic.message}`,
+  diagnostic.action,
+]);
 
 checkJson(["smoke", "--json"], 0, { version: 1, command: "smoke", ...fixture.supported.reply }, "Workspace smoke completed");
 checkJson(
