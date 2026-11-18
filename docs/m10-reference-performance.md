@@ -67,6 +67,8 @@ On 18 November 2026, Windows 11 Pro x64 build 26200 on an AMD Ryzen 5 5600X with
 | 2026-07-28 | 25.534 ms | 24.434 ms | 10 |
 | 2025-11-25 | 24.608 ms | 24.191 ms | 10 |
 
+The separate native supervision test also passed. It kept a descendant alive after the stdio process had exited and verified that native stop reaped it within the five-second limit.
+
 Inspector 2.15.0 with client and core 2.4.0 passed the full smoke on both revisions with Node 24.22.3. The isolated lock installation had SHA-256 `b8616cc862d792ad640cf3d6c700ff2c9a74e798febd2f10bc8ea93029ecf902`. The standalone release binary had SHA-256 `0d09e334fd6e33896a4f48fe35f04bd228fb395fe2a2f3cd3c8a2e6f0b8ea915`. The fixture observed one approved item lookup per revision.
 
 That prebuilt standalone executable also passed the independent stdio benchmark using Node 24.22.3 and the Windows PowerShell working-set check. Each revision ran 30 starts, 200 measured calls after warm-up and 10 measured stops with zero failures.

@@ -353,15 +353,12 @@ async fn serve_once(
             // Cancel only after the handler has made its upstream request.
             cancellation.cancel();
             match socket.read(&mut block).await {
-                Ok(0) => (),
+                Ok(0) => {}
                 Err(error)
                     if matches!(
                         error.kind(),
                         io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
-                    ) =>
-                {
-                    ()
-                }
+                    ) => {}
                 Err(error) => return Err(error),
                 Ok(_) => return Err(io::Error::other("Cancelled upstream sent extra bytes")),
             }
