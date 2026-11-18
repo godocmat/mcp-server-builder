@@ -47,7 +47,23 @@ jobs:
         run: ./apps/desktop/scripts/build-windows-pilot.ps1
 
       - name: Install, check the GUI, replay, build an export, and uninstall
+        id: installed
         run: ./.github/ci/installed-pilot.ps1
 
       - name: Verify lockfiles stayed intact
         run: git diff --exit-code -- Cargo.lock apps/desktop/package-lock.json
+
+      - name: Package the verified installer and distribution notices
+        id: package
+        env:
+          VERIFIED_INSTALLER_SHA256: ${{ steps.installed.outputs.installer-sha256 }}
+        run: ./.github/ci/stage-windows-pilot.ps1 -VerifiedInstallerSha256 $env:VERIFIED_INSTALLER_SHA256
+
+      - name: Upload the verified Windows pilot
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.package.outputs.artifact-name }}
+          path: target/windows-pilot-release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

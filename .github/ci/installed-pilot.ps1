@@ -58,3 +58,4 @@ try {
 
 "Installed pilot passed on $env:RUNNER_OS at commit $env:GITHUB_SHA. Unsigned installer SHA-256 $checksum." |
     Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+"installer-sha256=$checksum" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
