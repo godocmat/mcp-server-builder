@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const repository = fileURLToPath(new URL("../..", import.meta.url));
 const target = resolve(process.env.CARGO_TARGET_DIR ?? join(repository, "target"));
 const executable = process.platform === "win32" ? "mcp-builder.exe" : "mcp-builder";
-const builder = join(target, "debug", executable);
+const builder = process.argv[2] ? resolve(process.argv[2]) : join(target, "debug", executable);
 const parent = realpathSync(tmpdir());
 const scratch = realpathSync(mkdtempSync(join(parent, "mcp-standalone-ci-")));
 assert.equal(dirname(scratch), parent);

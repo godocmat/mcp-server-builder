@@ -10,9 +10,17 @@ Use a clean Windows 11 x64 VM with a standard user, a local NTFS volume, and the
 6. Change the saved project from a second process while a draft is open. Verify that the stale save reports a conflict and that the draft can be saved as a new project. Repeat a failed preview or export with corrected inputs and confirm that the last valid project or export still opens.
 7. Run the core path by keyboard and with Windows Narrator. Record focus order and return from pickers, control names, errors, status announcements, and any blocked steps. Review the installation and removal with a saved project present. [Native and accessibility checks](testing.md#gui-cli-and-standalone-runs)
 
-The headless checks can run from the same commit with the locked build tools. `standalone-smoke.mjs` validates the catalog, runs two Windows fixture replays, then builds and tests its exported project. The independent benchmark drives a release export through real stdio using a loopback REST fixture. It records 30 starts, 200 calls after 20 warmups, a 60-second idle working set and 10 stops per revision. The explicit stop after a cancelled managed call uses the native supervision checks. Run the budget comparison on the reference machine. [Coverage and performance gates](traceability.md#quality-measurement)
+The headless checks can run from the same commit with the locked build tools. `standalone-smoke.mjs` validates the catalog, runs two Windows fixture replays, then builds and tests its exported project. Pass the full CLI path to test the packaged copy. The independent benchmark drives a release export through real stdio using a loopback REST fixture. It records 30 starts, 200 calls after 20 warmups, a 60-second idle working set and 10 stops per revision. The explicit stop after a cancelled managed call uses the native supervision checks. Run the budget comparison on the reference machine. [Coverage and performance gates](traceability.md#quality-measurement)
 
 ```powershell
-node .github/ci/standalone-smoke.mjs
+node .github/ci/standalone-smoke.mjs $releaseCli
 node .github/ci/stdio-pilot-benchmark.mjs $releaseCli $newReportPath
+```
+
+The Windows desktop IPC test can also verify worker packaging assumptions headlessly. Set `CARGO_TARGET_DIR` to a disposable absolute build directory, build the locked Angular assets, and run the commands below from the repository root. Tauri's mock web runtime issues the IPC commands, and the test starts the real CLI from beside its test executable. Use the same configuration for the two Cargo commands.
+
+```powershell
+cargo build --locked -p mcp-builder
+Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'debug/mcp-builder.exe') -Destination (Join-Path $env:CARGO_TARGET_DIR 'debug/deps/mcp-builder.exe')
+cargo test --locked -p mcp-builder-desktop --features custom-protocol reviewed_fixture_round_trips_through_desktop_ipc_and_real_stdio -- --ignored
 ```

@@ -25,7 +25,7 @@ The client accepts only the two supported revisions, bounds stdio frames and pro
 
 Trace capture is in memory and defaults to metadata. The ring bounds entry count and serialized bytes, records loss and truncation, and discards transient payloads on close. The CLI snapshots the requested trace before stopping. Peer error text and raw stderr stay outside the trace. Display payloads and opt-in evidence use credential and scenario-path redaction. Assertion checks run on the bounded normalized result before redaction. Live writes conservatively report an unknown effect where the starter runtime cannot confirm an upstream commit.
 
-M8 owns Tauri session registration, IPC and installed worker packaging. Hosts that enable tracing must apply `sdk_diagnostic_filter` to each diagnostic layer. The CLI applies it and starts the worker before initializing its own subscriber. M9 owns the full scripted validation and test commands. Per-profile run history and export reports follow the evidence-store work in the plan.
+The desktop uses purpose-bound folder selections and one-use reviews and approvals. The pilot installer places the first-party worker alongside the desktop. Live file mappings and credential sources belong to a single review. The CLI can script single or full-suite fixture replay. Both hosts apply `sdk_diagnostic_filter` to their diagnostic layers. The CLI enters worker mode before initializing its own subscriber. Per-profile run history and export reports follow the evidence-store work in the plan. [Build the pilot installer](deployment.md#build-the-windows-pilot-installer) · [Local MVP CLI](local-cli.md)
 
 ## Verification
 
