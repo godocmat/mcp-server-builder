@@ -25,11 +25,21 @@ Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'debug/mcp-builder.exe')
 cargo test --locked -p mcp-builder-desktop --features custom-protocol reviewed_fixture_round_trips_through_desktop_ipc_and_real_stdio -- --ignored
 ```
 
+## GitHub-hosted pilot checks
+
+Run **Windows pilot** from the repository's Actions tab. The workflow provisions a disposable `windows-2025` runner, builds the unsigned NSIS installer and checks the installed CLI's digest against the build. The installed CLI validates and replays the catalog, exports Rust and builds and tests the export outside the builder. The workflow also probes the installed WebView2 and uninstalls the builder while checking that the portable project survives. The installer stays on the runner. [Windows pilot workflow](../.github/workflows/windows-pilot.yml)
+
+The hosted image runs Windows Server 2025. The Windows 11 pilot still needs native folder picker, restart recovery and Narrator evidence under a standard user account.
+
+On 18 November 2026, the hosted package build at `6ef0506` produced unsigned NSIS SHA-256 `7036290e7aa3b5f6ef37f50bd34a0c61d042f139ff5663ca2e0de101804a41c0`. Per-user installation, bundled CLI identity, two passes of the four saved scenarios, the locked standalone build and 23 standalone tests passed. Uninstall completed and the portable manifest survived. Microsoft Edge WebDriver 156.0.4314.58 started and timed out opening a session for the installed release. A separate installed release attempt received no response from its loopback WebView2 debugger. The hosted installed GUI gate remains open. [Installed pilot run](https://github.com/godocmat/mcp-server-builder/actions/runs/44400179113) · [Earlier browser probe](https://github.com/godocmat/mcp-server-builder/actions/runs/44397321483)
+
+Foundation CI passed its real WebView2 IPC smoke on the built Windows desktop, along with WKWebView and WebKitGTK on the other hosted runners. The separate Windows 11 evaluation guest reached Setup and was shut down before the pilot app was installed. [Foundation results](ci.md#first-hosted-run)
+
 ## Workstation evidence
 
 The 18 November 2026 run used Windows 11 Pro x64 build 26200, local NTFS, Rust 1.99.1, Node 24.22.3 and npm 11.19.1. The unsigned NSIS package was built from the M8/M9 implementation at `1759d01`. Its SHA-256 was `a4c2b0c049484b7012568ee6a03a468c3d77c1dbd8e7732df1cd54c5fafc06eb`. The package contains the desktop and the CLI at its root. The desktop bytes match the release binary with Tauri's three-byte NSIS marker applied. The bundled CLI SHA-256 was `d1773f65c4e256e34cfba6fa40cd7f6fad70627d12f590220bd2670a92db89b2`, matching the release build and the CLI used for the catalog and standalone checks.
 
-The headless Rust tests covered stdio and loopback HTTP, both protocol revisions, and the Windows launch and file boundaries. Windows LCOV counted 12,069 of 14,032 executable authored Rust lines under the workspace source directories. That figure excludes test modules, test-only blocks and emitted copies of the runtime. Angular V8 counted 716 of 828 TypeScript lines. This run leaves the separate 90% security coverage gate open. [Coverage rules](traceability.md#coverage-denominators)
+The initial headless Rust tests covered stdio and loopback HTTP, both protocol revisions, and the Windows launch and file boundaries. Windows LCOV counted 12,069 of 14,032 executable authored Rust lines under the workspace source directories. Angular V8 counted 716 of 828 TypeScript lines. A follow-up with additional regression tests and a separate standalone profile reached 90.13% core and 90.11% security-critical coverage. [Scoped coverage results](m10-security-coverage.md)
 
 The independent benchmark used the generated release build and a local REST fixture on an AMD Ryzen 5 5600X workstation with 12 logical CPUs and about 32 GiB RAM. Each profile completed 30 fresh launches, 200 measured calls and 10 measured standalone stops with zero failures. The raw benchmark file records the fixture, manifest and server hashes with the per-attempt timings. [Performance method](traceability.md#performance-method-and-budgets)
 

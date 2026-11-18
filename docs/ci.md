@@ -83,7 +83,7 @@ Each runner uploads `coverage-<runner>` with Rust and Angular LCOV files. The Ru
 
 The LCOV reports give file and line data for the [component inventory](traceability.md#coverage-denominators). Map new files and feature or platform tests to that inventory as they land. For milestone totals, normalize paths to repository-relative names and merge executable and covered line sets across the same commit before applying the core and security-critical scopes. Foundation reports cover the default transport selection with embedded desktop assets and the Angular unit tests. Add instrumented SDK feature and native integration runs when those tests land. M10, R3 and R5 own the milestone thresholds of 80% core and 90% security-critical line coverage.
 
-Foundation CI runs on pull requests, pushes to `master`, and manual dispatch. It uses `contents: read`, disables persisted checkout credentials and pins all Actions to full commit SHAs. The workflow syntax job verifies the `actionlint 1.7.12` archive SHA-256 before running it. Coverage reports are the workflow's only uploaded artifacts. Keep signing and notarization credentials in protected release environments with required reviewers and trusted refs. R2/R5 sign reviewed release inputs in that separate workflow and recompute checksums after signing. [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use) · [Packaging and signing plan](deployment.md#build-webview-and-signing-constraints)
+Foundation CI runs on pull requests, pushes to `main` or `master`, and manual dispatch. It uses `contents: read`, disables persisted checkout credentials and pins all Actions to full commit SHAs. The workflow syntax job verifies the `actionlint 1.7.12` archive SHA-256 before running it. Coverage reports are the workflow's only uploaded artifacts. Keep signing and notarization credentials in protected release environments with required reviewers and trusted refs. R2/R5 sign reviewed release inputs in that separate workflow and recompute checksums after signing. [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use) · [Packaging and signing plan](deployment.md#build-webview-and-signing-constraints)
 
 ## Observed local results
 
@@ -100,6 +100,12 @@ Foundation CI runs on pull requests, pushes to `master`, and manual dispatch. It
 
 ## First hosted run
 
-This worktree has no Git remote. Use the first pull request run after the branch reaches GitHub. A push to `master` also runs the workflow, and manual dispatch becomes available once the workflow is on the default branch. Record the run URL, commit and image revisions for all three rows. Check both Node pairs, the target-specific graphs, the stdio subprocess tests, both LCOV files per runner and each native trial's reported outcome. Apple silicon compilation and WKWebView, Windows Server 2025 toolchain discovery and WebView2, Ubuntu runner provisioning, GitHub artifact upload and the actual Actions job results require that run. [GitHub workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
+On 18 November 2026, Foundation CI passed on commit `a96f712`. Both locked Node versions, Rust tests and Clippy, SDK profiles, wire tests, coverage uploads and the native IPC trials passed. Each platform uploaded its Rust and Angular LCOV reports. [Foundation CI run](https://github.com/godocmat/mcp-server-builder/actions/runs/44397618022)
 
-F2 changes the root `Cargo.lock` for the optional native test provider and the desktop package lock for V8 coverage. When integrating M1 or M2, preserve the locked entries from both changes and rerun the workspace gates on the merged commit. M8/M10 own pilot GUI workflows and R2/R4 own packaged native evidence.
+| Runner | Observed image | Native WebView result |
+| --- | --- | --- |
+| `windows-2025` | `win25-vs2026 20261103.298.1` x64 | Evergreen WebView2 156.0.4314.58 passed typed IPC and correlation checks. |
+| `macos-26` | `macos26 20261112.0504.1` arm64 | WKWebView passed typed IPC and correlation checks. |
+| `ubuntu-24.04` | `ubuntu24 20261111.370.1` x64 | WebKitGTK under Xvfb passed typed IPC and correlation checks. |
+
+The Windows runner uses a scratch folder under `RUNNER_TEMP` for native file tests. The catalog fixture creates its private directory under its scratch folder on Unix. Installed Windows checks have their own workflow and evidence. [Installed Windows pilot](windows-pilot.md#github-hosted-pilot-checks)

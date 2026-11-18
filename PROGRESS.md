@@ -135,14 +135,17 @@ The CLI can list, create, open, validate, save and recover projects, generate st
 
 ## M10 Windows pilot evidence
 
-The bundled CLI validated and twice replayed the catalog's four scenarios, then generated source that built and passed 23 tests in a separate directory. The generated stdio suite exercises both supported revisions through real pipes. The integrated Windows suite passed 152 Rust tests and the separately enabled IPC worker test. Clippy, formatting, workflow lint and the Angular build passed. Workstation LCOV measured 86.01% for authored Windows Rust and Angular V8 measured 86.47% for TypeScript. The reference-machine benchmark, full security coverage assessment and native GUI-to-CLI pilot remain open. [Results and remaining gates](docs/windows-pilot.md#workstation-evidence)
+The bundled CLI validated and twice replayed the catalog's four scenarios, then generated source that built and passed 23 tests in a separate directory. The generated stdio suite exercises both supported revisions through real pipes. The integrated Windows suite passed 152 Rust tests and the separately enabled IPC worker test. Clippy, formatting, workflow lint and the Angular build passed. Initial workstation LCOV measured 86.01% for authored Windows Rust and Angular V8 measured 86.47% for TypeScript. [Workstation results](docs/windows-pilot.md#workstation-evidence)
+
+A follow-up Windows profile produced 90.13% core and 90.11% security-critical line coverage with both measurements reproduced from fresh profiles. Inspector 2.15.0 exercised all catalog capability types on both revisions. The workstation's 40 managed stop samples covered normal completion and cancellation, and every sample left the native job empty. The 4 vCPU, 8 GiB reference measurements and the standard user Windows 11 walkthrough remain open. [Security coverage](docs/m10-security-coverage.md) · [Performance and Inspector](docs/m10-reference-performance.md)
+
+Hosted Foundation CI passed on Windows Server 2025, macOS arm64 and Ubuntu x64. Each job passed the native WebView IPC trial and published Rust and Angular coverage. The hosted unsigned Windows pilot passed installation, CLI and standalone checks, and uninstall. The matching WebView2 driver timed out creating a session for the installed release. [Hosted Foundation results](docs/ci.md#first-hosted-run) · [Installed Windows results](docs/windows-pilot.md#github-hosted-pilot-checks)
 
 ## Verification carried forward
 
 | First task | Evidence still required |
 | --- | --- |
-| F2 · Foundation and platform | Record a hosted run on the three named workers, both coverage artifacts per worker, and the native trial outcome for each WebView. [F2 hosted handoff](docs/ci.md#first-hosted-run) |
-| M10 · Pilot owners | Verify the clean Windows install, native WebView and picker behavior, complete GUI-to-CLI workflow, restart recovery and accessibility. Complete the reference performance run and security coverage assessment. [Windows pilot checklist](docs/windows-pilot.md) |
+| M10 · Pilot owners | Verify the Windows 11 installation under a standard user account, native folder pickers, the GUI-to-CLI workflow, restart recovery and Narrator. Complete the reference performance run. [Windows pilot checklist](docs/windows-pilot.md) |
 | V1/V2/V5–V9/V13 · Project, runtime and application services | Verify pilot migration and passive import, native credential backends and approval invalidation, per-adapter policy and cleanup, full standalone exports and entitlement continuity. |
 | V3/V4/V10 · OAuth and interoperability | Record actual provider, database and access-token settings, TLS and trust inputs, audience isolation, callback and refresh evidence, client registrations, and real client versions and wire outcomes. |
 | R1/R3 · Deployment and security | Verify DNS/TLS and renewal, both Linux deployment profiles, bounded drain, secret rotation, denial, coverage and clean restore after a failed rollout. |
