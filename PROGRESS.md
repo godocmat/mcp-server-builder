@@ -139,7 +139,7 @@ The bundled CLI validated and twice replayed the catalog's four scenarios, then 
 
 A follow-up Windows profile produced 90.13% core and 90.11% security-critical line coverage with both measurements reproduced from fresh profiles. Inspector 2.15.0 exercised all catalog capability types on both revisions. The workstation's 40 managed stop samples covered normal completion and cancellation, and every sample left the native job empty. The 4 vCPU, 8 GiB reference measurements and the standard user Windows 11 walkthrough remain open. [Security coverage](docs/m10-security-coverage.md) · [Performance and Inspector](docs/m10-reference-performance.md)
 
-Hosted Foundation CI passed on Windows Server 2025, macOS arm64 and Ubuntu x64. Each job passed the native WebView IPC trial and published Rust and Angular coverage. The hosted unsigned Windows pilot passed installation, CLI and standalone checks, and uninstall. The matching WebView2 driver timed out creating a session for the installed release. [Hosted Foundation results](docs/ci.md#first-hosted-run) · [Installed Windows results](docs/windows-pilot.md#github-hosted-pilot-checks)
+Hosted Foundation CI passed on Windows Server 2025, macOS arm64 and Ubuntu x64. Each job passed the native WebView IPC trial and published Rust and Angular coverage. The unsigned Windows pilot passed the installed GUI workflow through Windows UI Automation, including fixture replay, trace redaction and worker shutdown. The same run passed the CLI checks, standalone build and tests, and uninstall with the project preserved. [Hosted Foundation results](docs/ci.md#first-hosted-run) · [Installed Windows results](docs/windows-pilot.md#github-hosted-pilot-checks)
 
 ## Verification carried forward
 
