@@ -47,8 +47,8 @@ try {
     if (!$registration.ok -or $registration.data.document.name -ne 'Catalog sample') {
         throw 'The installed CLI could not register the reference catalog.'
     }
-    node (Join-Path $PSScriptRoot 'installed-webview.mjs') $desktop (Join-Path $scratch 'webview')
     node (Join-Path $PSScriptRoot 'standalone-smoke.mjs') $cli
+    node (Join-Path $PSScriptRoot 'installed-webview.mjs') $desktop (Join-Path $scratch 'webview')
 } finally {
     $removal = Start-Process -FilePath $uninstall -ArgumentList '/S' -WindowStyle Hidden -Wait -PassThru
     if ($removal.ExitCode -ne 0 -or (Test-Path -LiteralPath $desktop) -or !(Test-Path -LiteralPath $manifest)) {

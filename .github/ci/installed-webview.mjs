@@ -27,7 +27,6 @@ const app = spawn(binary, [], {
       `--remote-debugging-address=127.0.0.1 --remote-debugging-port=${port}`,
   },
   stdio: ["ignore", "ignore", "pipe"],
-  windowsHide: true,
 });
 let stderr = "";
 let spawnError;
@@ -87,16 +86,26 @@ const textAt = (selector) => evaluate((query) => document.querySelector(query)?.
 const status = (expected) => until(expected, async () =>
   (await textAt("app-playground p.status")).includes(expected));
 
+let endpointProbe = "no response";
 try {
   const page = await until("the installed WebView2 page", async () => {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
         signal: AbortSignal.timeout(1500),
       });
-      if (!response.ok) return null;
-      return (await response.json()).find((item) =>
-        item.type === "page" && item.url === "http://tauri.localhost/" && item.webSocketDebuggerUrl);
-    } catch {
+      if (!response.ok) {
+        endpointProbe = `HTTP ${response.status}`;
+        return null;
+      }
+      const targets = await response.json();
+      endpointProbe = targets.map(({ type, url }) => `${type}: ${url}`).join(", ") || "empty target list";
+      return targets.find((item) => {
+        const url = URL.parse(item.url);
+        return ["page", "webview"].includes(item.type) && item.webSocketDebuggerUrl &&
+          url?.hostname === "tauri.localhost" && ["http:", "https:"].includes(url.protocol);
+      });
+    } catch (error) {
+      endpointProbe = error.cause?.code ?? error.name;
       return null;
     }
   });
@@ -167,6 +176,7 @@ try {
   assert.ok(!stderr.includes(marker), "Synthetic private field reached process stderr");
   console.log("Installed WebView2 opened the catalog, cancelled a review, replayed a fixture and stopped its bundled worker.");
 } catch (error) {
+  console.error(`Last WebView2 endpoint observation: ${endpointProbe}`);
   if (stderr) console.error(stderr);
   throw error;
 } finally {
