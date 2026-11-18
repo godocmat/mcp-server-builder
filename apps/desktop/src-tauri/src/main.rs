@@ -125,7 +125,7 @@ mod tests {
         let profile = tempfile::tempdir().unwrap();
         let app = desktop_builder(
             mock_builder(),
-            ipc::Desktop::new(ProjectService::with_profile(profile.path().into())),
+            ipc::Desktop::new(ProjectService::with_profile(profile.path().join("catalog"))),
         )
         .build(tauri::generate_context!())
         .unwrap();
@@ -180,7 +180,7 @@ mod tests {
             serde_json::to_vec(&document).unwrap(),
         )
         .unwrap();
-        let projects = ProjectService::with_profile(profile.path().into());
+        let projects = ProjectService::with_profile(profile.path().join("catalog"));
         let opened = tauri::async_runtime::block_on(
             projects.open(ProjectLocation::Root(project.path().into())),
         );

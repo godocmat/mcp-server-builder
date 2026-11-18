@@ -18,6 +18,14 @@ if ($env:GITHUB_PATH) {
         "$name=$([Environment]::GetEnvironmentVariable($name))" | Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8
     }
 }
+if ($env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+    # The runner's user TEMP can use a DOS short-name alias. Use the explicit
+    # runner workspace volume for tests that verify physical NTFS paths.
+    $nativeTemp = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'mcp-builder-native-temp')
+    "Test temporary directory: $($nativeTemp.FullName)"
+    "TEMP=$($nativeTemp.FullName)", "TMP=$($nativeTemp.FullName)" |
+        Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8
+}
 "Windows SDK: $env:WindowsSDKVersion"
 
 $webviewId = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
