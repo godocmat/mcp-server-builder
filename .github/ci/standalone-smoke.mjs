@@ -13,6 +13,16 @@ const parent = realpathSync(tmpdir());
 const scratch = realpathSync(mkdtempSync(join(parent, "mcp-standalone-ci-")));
 assert.equal(dirname(scratch), parent);
 
+function builderJson(command, args) {
+  const result = JSON.parse(execFileSync(builder, [...args, "--json"], {
+    encoding: "utf8", windowsHide: true, timeout: 60_000,
+  }));
+  assert.equal(result.version, 1);
+  assert.equal(result.command, command);
+  assert.equal(result.ok, true);
+  return result.data;
+}
+
 try {
   const project = join(scratch, "project");
   const output = join(scratch, "standalone export");
@@ -21,14 +31,23 @@ try {
     join(repository, "crates", "builder-project", "tests", "fixtures", "catalog-v1.json"),
     join(project, "mcp-project.json"),
   );
-  const result = JSON.parse(execFileSync(builder, ["generate", project, "--out", output, "--json"], {
-    encoding: "utf8", windowsHide: true,
-  }));
-  assert.equal(result.version, 1);
-  assert.equal(result.command, "generate");
-  assert.equal(result.ok, true);
-  assert.equal(result.data.published, true);
-  assert.ok(result.data.generation.files.some(file => file.path === "tests/stdio.rs"));
+  assert.equal(builderJson("project.validate", ["project", "validate", project]).valid, true);
+  if (process.platform === "win32") {
+    const inputs = [project, "--all", "--grant", "catalog_read", "--grant", "note_read",
+      "--prompt", "review_item"];
+    const { digest } = builderJson("policy.review.launch", ["policy", "review", "launch", ...inputs]);
+    assert.match(digest, /^sha256:[a-f\d]{64}$/);
+    for (let replay = 0; replay < 2; replay++) {
+      const { runs } = builderJson("test.run", ["test", "run", ...inputs, "--approve", digest]);
+      assert.deepEqual(runs.map(run => run.scenarioId), ["known_item", "invalid_item", "note", "review"]);
+      assert.ok(runs.every(run => run.outcome === "passed"));
+    }
+    console.log("The four catalog scenarios passed two independent managed replays.");
+  }
+
+  const result = builderJson("generate", ["generate", project, "--out", output]);
+  assert.equal(result.published, true);
+  assert.ok(result.generation.files.some(file => file.path === "tests/stdio.rs"));
 
   const env = { ...process.env, CARGO_TARGET_DIR: target };
   for (const command of ["build", "test"]) {
