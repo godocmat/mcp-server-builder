@@ -82,7 +82,7 @@ curl -fL "$fixture_url" -o "$project_dir/mcp-project.json"
 1. Choose **Projects → Open folder** and select the catalog folder printed by `$projectDir` in PowerShell or `printf '%s\n' "$project_dir"` in Bash.
 2. Open **Playground**, choose **Saved fixture** and **Known catalog item**, and select the `catalog_read` grant.
 3. Choose **Review launch**. Inspect the executable, working directory, project revision, and grant. Choose **Approve and start**.
-4. Choose **Replay scenario**, check the result and trace, then select **Stop server**.
+4. Choose **Run saved fixture** and check the result. Open **Protocol trace** and choose **Refresh trace**, then select **Stop server**.
 
 Saved fixture replay uses synthetic data and works without upstream connections or credentials. [Managed playground](docs/local-playground.md)
 
