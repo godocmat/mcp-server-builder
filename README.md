@@ -142,7 +142,7 @@ With the Rust and native compiler prerequisites below, enter the exported direct
 
 Use the executable you built from the standalone export and the `mcp-project.json` next to its source. To try the sample's `review_item` prompt, copy `runtime-config.example.json` to `runtime-config.local.json` in your sample directory. Review the manifest and prompt, set `manifestRevision` to the digest for the exported manifest from `generation.json`, set `approvedPromptIds` to `["review_item"]`, and leave `approvedGrantIds` empty. The generated README explains how to review the exact manifest digest and additional permissions. [Standalone runtime setup](crates/builder-generator/template/README.md#review-the-manifest-and-configure-access)
 
-**Desktop.** In **Export → MCP client configuration**, select a client and enter a server name. Choose the server executable, exported manifest, and optional reviewed runtime config. Choose **Generate client configuration**, then copy the result or save it to a new file.
+**Desktop.** In **Export → MCP client configuration**, select a client and enter a server name. Choose the server executable, exported manifest, and optional reviewed runtime config. Choose **Generate client configuration**, then choose **Copy client configuration** or **Save client configuration**.
 
 **Windows PowerShell**
 
@@ -170,7 +170,7 @@ If Cargo built the executable in a different target directory, select that execu
 | --- | --- |
 | `claude-code` | Merge the server entry into `mcpServers` in your project's `.mcp.json`. [Claude Code MCP guide](https://code.claude.com/docs/en/mcp#project-scope) |
 | `codex` | Add the TOML table to `~/.codex/config.toml` or `.codex/config.toml` in a trusted project. [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli#configure-with-configtoml) |
-| `opencode` | Merge the entry into `mcp.servers` in your OpenCode V2 `opencode.json` or `opencode.jsonc`. [OpenCode V2 MCP guide](https://opencode.ai/docs/mcp-servers/#config) |
+| `opencode` | Merge the entry into `mcp.servers` in your OpenCode V2 `opencode.json` or `opencode.jsonc`. [OpenCode V2 MCP guide](https://github.com/anomalyco/opencode/blob/v2.2.7/services/site/src/docs/content/mcp-servers.mdx#config) |
 | `generic` | Load the file directly in MCP Inspector, or use its `command` and `args` fields in another stdio client. [MCP Inspector CLI guide](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector/cli#choosing-a-server) |
 
 To confirm the reviewed sample prompt with MCP Inspector, use Node `24.22.3` and substitute the path to the generated file if needed. Run from the directory containing the profile. The result lists `review_item`. [Inspector protocol options](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector/protocol-eras)
