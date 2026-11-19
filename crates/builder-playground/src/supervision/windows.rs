@@ -28,6 +28,7 @@ mod process;
 
 pub(super) use pipes::Input;
 pub(super) use process::NativeChild;
+pub(super) type Output = tokio::net::windows::named_pipe::NamedPipeServer;
 
 const MAX_WINDOWS_UNITS: usize = 32_767;
 const MAX_ENVIRONMENT_ENTRIES: usize = 256;

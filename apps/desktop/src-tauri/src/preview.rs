@@ -191,19 +191,24 @@ fn verify_prepared(
     Ok(())
 }
 
-fn installed_worker() -> Outcome<PathBuf> {
-    #[cfg(windows)]
+pub(crate) fn installed_worker() -> Outcome<PathBuf> {
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
+        let filename = if cfg!(windows) {
+            "mcp-builder.exe"
+        } else {
+            "mcp-builder"
+        };
         std::env::current_exe()
-            .map(|desktop| desktop.with_file_name("mcp-builder.exe"))
+            .map(|desktop| desktop.with_file_name(filename))
             .map_err(|_| preview_fault(PreviewError::WorkerUnavailable))
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Err(Fault::new(
             DiagnosticCode::Playground("playground.launch_unsupported"),
             "Managed preview is unavailable on this platform.",
-            "Use a supported Windows desktop installation for managed preview.",
+            "Use a supported desktop installation for managed preview.",
             None,
         ))
     }

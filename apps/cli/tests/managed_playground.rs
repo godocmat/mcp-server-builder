@@ -1,11 +1,13 @@
-#![cfg(windows)]
+#![cfg(any(windows, target_os = "linux", target_os = "macos"))]
 
 #[path = "managed_playground/stop_benchmark.rs"]
+#[cfg(windows)]
 mod stop_benchmark;
 
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -19,6 +21,7 @@ use builder_app::playground::{
 use builder_app::{ProjectLocation, ProjectService, Reply};
 use serde_json::{Value, json};
 use tempfile::TempDir;
+#[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, WAIT_OBJECT_0},
     System::Threading::{CREATE_NO_WINDOW, OpenProcess, WaitForSingleObject},
@@ -33,9 +36,12 @@ fn sample() -> Value {
 }
 
 fn project(document: &Value) -> TempDir {
+    let parent = std::env::temp_dir();
+    #[cfg(target_os = "macos")]
+    let parent = parent.canonicalize().unwrap();
     let directory = tempfile::Builder::new()
         .prefix("m7 project ž ")
-        .tempdir()
+        .tempdir_in(parent)
         .unwrap();
     save(directory.path(), document);
     directory
@@ -50,8 +56,10 @@ fn save(root: &Path, document: &Value) {
 }
 
 fn cli(action: &str, root: &Path, scenario: &str, more: &[&str]) -> (Output, Value) {
-    let output = Command::new(BUILDER)
-        .creation_flags(CREATE_NO_WINDOW)
+    let mut command = Command::new(BUILDER);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command
         .args(["--json", "playground", action])
         .arg(root)
         .args(["--scenario", scenario, "--grant", "catalog_read"])
@@ -73,8 +81,13 @@ fn review(root: &Path, scenario: &str) -> String {
     let (output, reply) = cli("review", root, scenario, &[]);
     assert!(output.status.success(), "{reply}");
     let environment = reply["data"]["environment"].as_object().unwrap();
-    assert_eq!(environment.len(), 1);
-    assert!(Path::new(environment["SystemRoot"].as_str().unwrap()).is_absolute());
+    #[cfg(windows)]
+    {
+        assert_eq!(environment.len(), 1);
+        assert!(Path::new(environment["SystemRoot"].as_str().unwrap()).is_absolute());
+    }
+    #[cfg(not(windows))]
+    assert!(environment.is_empty());
     assert_eq!(reply["data"]["approvedGrants"][0]["id"], "catalog_read");
     reply["data"]["digest"].as_str().unwrap().to_owned()
 }
@@ -416,23 +429,6 @@ async fn timed_out_request_releases_its_socket_and_the_same_preview_completes_a_
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     listener.set_nonblocking(true).unwrap();
-    let upstream = thread::spawn(move || {
-        let mut first = accept_before(&listener);
-        assert!(read_request(&mut first).starts_with("GET /items/slow HTTP/1.1"));
-        let closed = first.read(&mut [0; 1]);
-        assert!(
-            matches!(closed, Ok(0))
-                || closed.is_err_and(|error| {
-                    matches!(
-                        error.kind(),
-                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
-                    )
-                })
-        );
-        let mut next = accept_before(&listener);
-        assert!(read_request(&mut next).starts_with("GET /items/42 HTTP/1.1"));
-        next.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"id\":\"42\"}").unwrap();
-    });
     let mut document = sample();
     document["bindings"][0]["origin"] = json!(origin);
     document["bindings"][0]
@@ -441,6 +437,7 @@ async fn timed_out_request_releases_its_socket_and_the_same_preview_completes_a_
         .remove("headersFromSecrets");
     document["policy"]["grants"][0]["target"]["origin"] = json!(origin);
     document["policy"]["grants"][0]["target"]["allowedPeerRanges"] = json!(["127.0.0.1/32"]);
+    document["policy"]["grants"][0]["limits"]["timeoutMs"] = json!(2000);
     let directory = project(&document);
     let prepared = prepare(
         directory.path(),
@@ -458,6 +455,23 @@ async fn timed_out_request_releases_its_socket_and_the_same_preview_completes_a_
         .start(PreviewOptions::default(), &CancellationToken::new())
         .await
         .unwrap();
+    let upstream = thread::spawn(move || {
+        let mut first = accept_before(&listener);
+        assert!(read_request(&mut first).starts_with("GET /items/slow HTTP/1.1"));
+        let closed = first.read(&mut [0; 1]);
+        assert!(
+            matches!(closed, Ok(0))
+                || closed.is_err_and(|error| {
+                    matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                    )
+                })
+        );
+        let mut next = accept_before(&listener);
+        assert!(read_request(&mut next).starts_with("GET /items/42 HTTP/1.1"));
+        next.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"id\":\"42\"}").unwrap();
+    });
     let tool = |id: &str| Invocation::Tool {
         name: "lookup_item".into(),
         arguments: [("id".into(), json!(id))].into_iter().collect(),
@@ -522,6 +536,7 @@ fn read_request(socket: &mut TcpStream) -> String {
     String::from_utf8(bytes).unwrap()
 }
 
+#[cfg(windows)]
 fn assert_process_exited(pid: u32) {
     // SAFETY: OpenProcess returns a fresh handle, if the PID still exists.
     let handle = unsafe { OpenProcess(0x0010_0000, 0, pid) }; // SYNCHRONIZE
@@ -538,6 +553,17 @@ fn assert_process_exited(pid: u32) {
     }
 }
 
+#[cfg(windows)]
 fn io_error_code() -> i32 {
     std::io::Error::last_os_error().raw_os_error().unwrap()
+}
+
+#[cfg(not(windows))]
+fn assert_process_exited(pid: u32) {
+    // SAFETY: Signal zero checks process existence and does not deliver a signal.
+    assert_eq!(unsafe { libc::kill(pid.cast_signed(), 0) }, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH)
+    );
 }

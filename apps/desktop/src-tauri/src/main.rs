@@ -156,9 +156,9 @@ mod tests {
         assert_eq!(approval["error"]["code"], "policy.approval_required");
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[test]
-    #[ignore = "stage the built mcp-builder.exe next to the desktop test executable"]
+    #[ignore = "stage the built mcp-builder CLI next to the desktop test executable"]
     fn reviewed_fixture_round_trips_through_desktop_ipc_and_real_stdio() {
         use std::time::{Duration, Instant};
 
@@ -167,9 +167,7 @@ mod tests {
         const MARKER: &str = "desktop-fixture-redaction-check-b5f4";
         let project = tempfile::tempdir().unwrap();
         let profile = tempfile::tempdir().unwrap();
-        let worker = std::env::current_exe()
-            .unwrap()
-            .with_file_name("mcp-builder.exe");
+        let worker = preview::installed_worker().unwrap();
         assert!(worker.is_file(), "stage the first-party CLI at {worker:?}");
 
         let mut document: Value = serde_json::from_str(include_str!(
