@@ -1,0 +1,39 @@
+name: Native APFS export check
+
+on:
+  push:
+    branches: [codex/macos-export-check]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          architecture: arm64
+          package-manager-cache: false
+      - name: Exercise native APFS publication and reads
+        run: cargo test --locked -p builder-generator -p mcp-starter-adapters -p mcp-native-fs
+      - name: Exercise the macOS CLI export entry points
+        run: cargo test --locked -p mcp-builder --test mvp_cli
+      - name: Lint the selected Rust crates
+        run: cargo clippy --locked -p builder-generator -p mcp-starter-adapters -p mcp-native-fs --all-targets -- -D warnings
+      - name: Build and exercise the generated server
+        run: |
+          cargo build --locked -p mcp-builder
+          node .github/ci/standalone-smoke.mjs
+      - name: Confirm dependency locks stay intact
+        run: git diff --exit-code -- Cargo.lock crates/builder-generator/template/Cargo.lock
