@@ -55,7 +55,7 @@ export class ClientConfigPanelComponent {
       "Merge the server entry into the mcpServers object in your project's .mcp.json file.",
     codex: "Add the server table to your Codex config.toml file.",
     opencode:
-      "Merge the server entry into the mcp object in your opencode.json file.",
+      "Merge the server entry into mcp.servers in your OpenCode V2 configuration file.",
     generic:
       "Save the snippet as a new file and load it in MCP Inspector with --config and --server.",
   };
