@@ -63,13 +63,14 @@ if [[ "$RUNNER_OS" == macOS ]]; then
   bundle='MCP Server Builder.app'
   app="$scratch/Applications/$bundle"
   ditto "$mount/$bundle" "$app"
+  cli="$app/Contents/MacOS/mcp-builder"
+  desktop="$app/Contents/MacOS/mcp-builder-desktop"
+  cmp -- "$mount/$bundle/Contents/MacOS/mcp-builder" "$cli"
+  cmp -- "$mount/$bundle/Contents/MacOS/mcp-builder-desktop" "$desktop"
   hdiutil detach "$mount"
   mount=
   /usr/bin/codesign --verify --deep --strict "$app"
   /usr/bin/codesign -dv --verbose=4 "$app" 2>&1 | grep -Fx 'Signature=adhoc'
-  cli="$app/Contents/MacOS/mcp-builder"
-  desktop="$app/Contents/MacOS/mcp-builder-desktop"
-  cmp -- "$release/bundle/macos/$bundle/Contents/MacOS/mcp-builder" "$cli"
   xcrun swiftc -O "$repo/.github/ci/installed-macos-window.swift" -o "$scratch/check-window"
 else
   package="$(dpkg-deb -f "$installer" Package)"
