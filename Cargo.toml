@@ -7,6 +7,7 @@ members = [
     "crates/builder-generator",
     "crates/builder-playground",
     "crates/builder-project",
+    "crates/mcp-native-fs",
     "crates/mcp-policy",
     "crates/mcp-runtime",
     "crates/mcp-starter-adapters",

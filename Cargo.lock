@@ -399,6 +399,7 @@ name = "builder-generator"
 version = "0.2.0"
 dependencies = [
  "builder-project",
+ "mcp-native-fs",
  "rustix",
  "serde",
  "serde_json",
@@ -2662,6 +2663,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcp-native-fs"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rustix",
+]
+
+[[package]]
 name = "mcp-policy"
 version = "0.2.0"
 dependencies = [
@@ -2703,6 +2712,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "mcp-native-fs",
  "mcp-policy",
  "mcp-runtime",
  "percent-encoding",

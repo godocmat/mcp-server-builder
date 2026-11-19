@@ -2,8 +2,8 @@ use builder_project::ValidatedManifest;
 
 use crate::FileOwner;
 
-pub(crate) const RUNTIME_VERSION: &str = "0.1.0";
-pub(crate) const TEMPLATE_VERSION: &str = "1.1.0";
+pub(crate) const RUNTIME_VERSION: &str = "0.2.0";
+pub(crate) const TEMPLATE_VERSION: &str = "1.2.0";
 
 pub(crate) struct RenderedFile {
     pub path: &'static str,
@@ -75,6 +75,7 @@ pub(crate) fn render(_manifest: &ValidatedManifest) -> Vec<RenderedFile> {
         "src/validation/bindings.rs",
         "src/validation/scenarios.rs",
     );
+    shared!("mcp-native-fs", "Cargo.toml", "src/lib.rs", "src/macos.rs");
     shared!(
         "mcp-policy",
         "Cargo.toml",
@@ -107,6 +108,7 @@ pub(crate) fn render(_manifest: &ValidatedManifest) -> Vec<RenderedFile> {
         "src/filesystem.rs",
         "src/filesystem/native.rs",
         "src/filesystem/native/linux.rs",
+        "src/filesystem/native/macos.rs",
         "src/filesystem/native/tests.rs",
         "src/filesystem/native/windows.rs",
         "src/lib.rs",

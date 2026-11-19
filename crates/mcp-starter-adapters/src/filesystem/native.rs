@@ -1,8 +1,8 @@
 //! Read-only native filesystem access for an operator-selected root.
 //!
-//! Windows requires a real local NTFS drive mapping. Linux requires a trusted
-//! mount namespace and a kernel with openat2 and procfs. The operator controls
-//! the configured root and who can write to it.
+//! Windows requires local NTFS. Linux requires a trusted mount namespace and
+//! a kernel with openat2 and procfs. macOS requires local APFS. The operator
+//! controls the configured root and who can write to it.
 //! Requested paths are limited to 4096 UTF-8 bytes and 64 components.
 
 use std::{io, path::Path};
@@ -14,12 +14,16 @@ const MAX_COMPONENTS: usize = 64;
 mod linux;
 #[cfg(target_os = "linux")]
 use linux as platform;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos as platform;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
 use windows as platform;
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use std::{fs::File, io, path::Path};
 
@@ -96,7 +100,7 @@ fn valid_component(name: &str) -> bool {
         })
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn denied() -> io::Error {
     io::ErrorKind::PermissionDenied.into()
 }

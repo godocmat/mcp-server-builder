@@ -9,6 +9,7 @@ publish.workspace = true
 resolver = "3"
 members = [
     "crates/builder-project",
+    "crates/mcp-native-fs",
     "crates/mcp-policy",
     "crates/mcp-runtime",
     "crates/mcp-starter-adapters",

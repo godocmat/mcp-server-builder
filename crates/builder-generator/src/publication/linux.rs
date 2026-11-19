@@ -199,7 +199,7 @@ impl RegularFile {
     pub(super) fn read(&self, max_bytes: usize) -> Result<Vec<u8>, ExportError> {
         self.verify()?;
         let before = self.file.metadata().map_err(storage)?;
-        let bytes = read_bounded(&self.file, max_bytes)?;
+        let bytes = read_bounded(&self.file, before.len(), max_bytes)?;
         let after = self.file.metadata().map_err(storage)?;
         if before.len() != after.len()
             || before.mtime() != after.mtime()
