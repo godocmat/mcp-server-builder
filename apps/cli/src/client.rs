@@ -12,8 +12,8 @@ pub(crate) enum Action {
     /// Render local stdio configuration for a built standalone server.
     Export {
         /// MCP client configuration format.
-        #[arg(value_enum)]
-        profile: Profile,
+        #[arg(value_enum, value_name = "PROFILE")]
+        client_target: Profile,
         /// Server name used by the client.
         #[arg(long)]
         name: String,
@@ -54,7 +54,7 @@ impl From<Profile> for ClientConfigTarget {
 
 pub(crate) fn run(action: Action, json: bool) -> io::Result<ExitCode> {
     let Action::Export {
-        profile,
+        client_target,
         name,
         executable,
         manifest,
@@ -63,7 +63,7 @@ pub(crate) fn run(action: Action, json: bool) -> io::Result<ExitCode> {
     } = action;
     let reply = export_client_config(
         ClientConfigRequest {
-            target: profile.into(),
+            target: client_target.into(),
             name,
             executable,
             manifest,

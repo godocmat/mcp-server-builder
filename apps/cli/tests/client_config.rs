@@ -25,6 +25,7 @@ fn renders_native_arguments_and_saves_a_new_file_without_replacing_it() {
     let manifest = folder.join("mcp-project.json");
     fs::write(&manifest, b"manifest fixture").unwrap();
     let runtime_config = folder.join("runtime-config.local.json");
+    let catalog_profile = folder.join("catalog-profile");
     const MARKER: &str = "MCP_BUILDER_UNRENDERED_RUNTIME_CONFIG_MARKER";
     fs::write(&runtime_config, MARKER).unwrap();
 
@@ -34,6 +35,8 @@ fn renders_native_arguments_and_saves_a_new_file_without_replacing_it() {
             command.arg("--json");
         }
         command
+            .arg("--profile")
+            .arg(&catalog_profile)
             .args(["client", "export", "claude-code", "--name", "catalog"])
             .arg("--executable")
             .arg(&executable)
@@ -85,6 +88,7 @@ fn renders_native_arguments_and_saves_a_new_file_without_replacing_it() {
         fs::read(destination).unwrap(),
         b"existing client configuration"
     );
+    assert!(!catalog_profile.exists());
 }
 
 fn assert_same_file(rendered: &str, expected: &Path) {
