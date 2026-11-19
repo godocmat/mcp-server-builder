@@ -327,4 +327,9 @@ fn refuses_normalization_aliases_on_apfs() {
     let root = Root::open(scratch.path()).unwrap();
     assert!(root.open_file("Café.txt").is_ok());
     assert!(root.open_file(alias).is_err());
+
+    let nested = scratch.path().join("MappedRoot");
+    fs::create_dir(&nested).unwrap();
+    assert!(Root::open(&nested).is_ok());
+    assert!(Root::open(&scratch.path().join("mappedroot")).is_err());
 }

@@ -259,6 +259,7 @@ fn does_not_publish_after_the_selected_parent_changes() {
         Ok(())
     });
     assert!(matches!(result, Err(ExportError::UnsafePath)));
+    assert!(moved.is_dir(), "the publication must reach the recheck");
     assert!(!destination.exists());
     assert!(!moved.join("export").exists());
 }

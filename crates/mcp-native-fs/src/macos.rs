@@ -25,23 +25,10 @@ pub struct Directory(Pinned);
 impl Directory {
     pub fn open(path: &Path) -> io::Result<Self> {
         let path = physical_path(path)?;
-        let mut current = File::from(open_directory(CWD, "/")?);
-        for name in path.components().skip(1) {
-            // An absolute selection may cross from the system volume to the
-            // data volume through a macOS firmlink. Descendant lookups below
-            // the selected root use the stricter same-device check.
-            let name = name.as_os_str();
-            let entry = named_entry(&current, name)?;
-            if FileType::from_raw_mode(entry.st_mode) != FileType::Directory {
-                return Err(denied());
-            }
-            let child = File::from(open_directory(&current, name)?);
-            let actual = native::fstat(&child)?;
-            if !same_file(&entry, &actual) || !same_file(&named_entry(&current, name)?, &actual) {
-                return Err(denied());
-            }
-            current = child;
-        }
+        // The kernel applies no-follow to every component of the absolute
+        // path. Ancestors only need search permission, including the protected
+        // /private/var/folders hierarchy used by macOS temp directories.
+        let current = File::from(open_directory(CWD, &path)?);
         let filesystem = native::fstatfs(&current)?;
         let filesystem_name = filesystem.f_fstypename.map(|byte| byte as u8);
         if filesystem.f_flags & libc::MNT_LOCAL as u32 == 0
