@@ -1,0 +1,69 @@
+name: Hosted Unix GUI playground check
+
+on:
+  push:
+    branches: [codex/unix-gui-check]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unix-gui-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  native-playground:
+    name: Native playground (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+          - runner: ubuntu-24.04
+            arch: x64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare Ubuntu WebKitGTK and display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config file libwebkit2gtk-4.1-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev xvfb xauth dbus fonts-dejavu-core
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Build Angular frontend
+        working-directory: apps/desktop
+        run: |
+          npm ci --engine-strict
+          npm run build
+
+      - name: Build native desktop and sibling worker
+        run: cargo build --locked -p mcp-builder -p mcp-builder-desktop --features mcp-builder-desktop/custom-protocol,mcp-builder-desktop/ci-webdriver
+
+      - name: Review and replay a fixture in the native WebView
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a dbus-run-session -- node .github/ci/native-smoke.mjs --playground
+          else
+            node .github/ci/native-smoke.mjs --playground
+          fi

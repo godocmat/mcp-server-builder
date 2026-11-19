@@ -7,6 +7,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { exercisePlayground, registerCatalog } from "./native-playground-smoke.mjs";
+
+const testPlayground = process.argv.includes("--playground");
+if (testPlayground && (process.env.GITHUB_ACTIONS !== "true" || process.env.RUNNER_ENVIRONMENT !== "github-hosted")) {
+  throw new Error("Run the native playground smoke only on a disposable GitHub-hosted runner.");
+}
+
 const fixture = JSON.parse(
   await readFile(new URL("../../crates/builder-app/tests/fixtures/workspace-smoke.json", import.meta.url), "utf8"),
 );
@@ -20,16 +27,18 @@ await new Promise((done) => socket.close(done));
 
 const profileParent = await realpath(tmpdir());
 const profile = await mkdtemp(join(profileParent, "mcp-builder-webdriver-"));
+const environment = {
+  ...process.env,
+  TAURI_WEBDRIVER_PORT: String(port),
+  RUST_LOG: "builder_app=info",
+  WEBVIEW2_USER_DATA_FOLDER: profile,
+  XDG_CACHE_HOME: join(profile, "cache"),
+  XDG_CONFIG_HOME: join(profile, "config"),
+  XDG_DATA_HOME: join(profile, "data"),
+};
+if (testPlayground) await registerCatalog(binary, profile, environment);
 const app = spawn(binary, [], {
-  env: {
-    ...process.env,
-    TAURI_WEBDRIVER_PORT: String(port),
-    RUST_LOG: "builder_app=info",
-    WEBVIEW2_USER_DATA_FOLDER: profile,
-    XDG_CACHE_HOME: join(profile, "cache"),
-    XDG_CONFIG_HOME: join(profile, "config"),
-    XDG_DATA_HOME: join(profile, "data"),
-  },
+  env: environment,
   stdio: ["ignore", "ignore", "pipe"],
   windowsHide: true,
 });
@@ -123,6 +132,7 @@ try {
   }));
   console.log(`Native smoke passed at ${url} (${capabilities.browserName} ${capabilities.browserVersion}, contract ${contractVersion}, correlation ${correlationId}).`);
   console.log(`WebView user agent: ${fields.userAgent}`);
+  if (testPlayground) await exercisePlayground(request, session, waitFor);
 } catch (error) {
   if (stderr) console.error(stderr.trim());
   throw error;
