@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{self as native, AtFlags, CWD, Dir, FileType, Mode, OFlags, Stat};
 use rustix::io::Errno;
 
-const NO_LINKS: OFlags = OFlags::NOFOLLOW.union(OFlags::NOFOLLOW_ANY);
+const NO_LINKS: OFlags = OFlags::NOFOLLOW_ANY;
 const DIRECTORY_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
     .union(OFlags::CLOEXEC)
