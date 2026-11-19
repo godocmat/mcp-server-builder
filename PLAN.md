@@ -2,7 +2,7 @@
 
 12 November 2026
 
-MCP Server Builder lets developers create a local MCP server, exercise it through a real MCP client, and export a Rust project that builds and runs independently. The Windows x64 release, CLI, and first-party export code are free and open source under Apache-2.0. They work without product accounts or entitlements. [Current release](README.md)
+MCP Server Builder lets developers create a local MCP server, exercise it through a real MCP client, and export a Rust project that builds and runs independently. The desktop releases for Windows, macOS, and Ubuntu, the CLI, and the first-party export code are free and open source under Apache-2.0. They work without product accounts or entitlements. [Current release](README.md)
 
 Use the [task breakdown](TASKS.md) to dispatch work in fresh Codex chats and worktrees. The [Phase 0 handoff](PROGRESS.md), [decisions](DECISIONS.md) and [acceptance traceability](docs/traceability.md) define the starting design and evidence gates.
 
@@ -12,7 +12,7 @@ The local milestone describes the current release. The v1 proposal and later pha
 
 | Milestone | Scope | Acceptance workflow |
 | --- | --- | --- |
-| **Local MVP** | Windows desktop pilot and a shared Rust CLI. Create, open, validate, and export a versioned project. Configure a REST tool, a read-only file resource and resource template, and a prompt. Run the project over stdio, inspect a trace, and replay a saved fixture test. | On a clean Windows machine, create the sample project in the GUI, run its tests from the CLI, then compile and invoke its exported server from a separate directory using a generic MCP client. Verify that invalid input and a denied permission produce actionable errors. |
+| **Local MVP** | Windows, macOS, and Ubuntu desktop installers and a shared Rust CLI. Create, open, validate, and export a versioned project. Configure a REST tool, a read-only file resource and resource template, and a prompt. Run the project over stdio, inspect a trace, and replay a saved fixture test. | On each release platform, create the sample project in the GUI, run its tests from the CLI, then compile and invoke its exported server from a separate directory using a generic MCP client. Verify that invalid input and a denied permission produce actionable errors. |
 | **Historical v1 proposal** | Complete GUI and CLI project workflows, including rename, duplicate, import, migration, and client configuration export. Manage server metadata, transports, dependencies, and environment variables. Add PostgreSQL, SQLite, Git, custom Rust, and policy-bound external command templates. Support stdio and authenticated Streamable HTTP, full playground and audit workflows, Windows/macOS/Linux packages on verified targets, and Docker and self-hosted Linux deployment. | A new user can install the builder, configure and test a server, export and build it, deploy it to clean Linux infrastructure, and connect with the supported client configurations. CI and the release candidate supply evidence for the workflow. |
 
 The historical v1 scope proposed a fixed catalog, a scoped client matrix, and a PostgreSQL tool integration. Later candidates included standalone GET/resumption for legacy Streamable HTTP, the separate legacy HTTP+SSE transport, change subscriptions, optional extensions such as Tasks and MCP Apps, cloud-specific deployment adapters, hosted infrastructure, and centralized team administration. [Protocol and licensing decisions](DECISIONS.md)

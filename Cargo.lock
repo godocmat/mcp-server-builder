@@ -375,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "builder-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "builder-generator",
  "builder-playground",
@@ -396,7 +396,7 @@ dependencies = [
 
 [[package]]
 name = "builder-generator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "builder-project",
  "rustix",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "builder-playground"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "builder-project",
  "mcp-policy",
@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "builder-project"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fluent-uri",
  "ipnet",
@@ -2626,7 +2626,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mcp-builder"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "builder-app",
  "clap",
@@ -2641,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-builder-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "builder-app",
  "builder-project",
@@ -2663,7 +2663,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-policy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aho-corasick",
  "ipnet",
@@ -2675,7 +2675,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-runtime"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fluent-uri",
  "http",
@@ -2692,7 +2692,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-starter-adapters"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "builder-project",
@@ -2720,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-transport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.23.1",

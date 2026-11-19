@@ -4,7 +4,7 @@
     "reply": {
       "ok": true,
       "data": {
-        "builderVersion": "0.1.0",
+        "builderVersion": "0.2.0",
         "contractVersion": 1,
         "correlationId": "00000000-0000-0000-0000-000000000000"
       },
