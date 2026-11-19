@@ -37,7 +37,7 @@ jobs:
               for ancestor in reversed([path, *path.parents]):
                   metadata = ancestor.stat()
                   print(f"mode {metadata.st_mode & 0o777:o} readable {os.access(ancestor, os.R_OK)} {ancestor}")
-              fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC | 0x20000000)
+              fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | 0x20000000)
               try:
                   spelling = fcntl.fcntl(fd, 50, bytes(1024)).split(b"\x00", 1)[0]
                   print(f"F_GETPATH {spelling!r}")
