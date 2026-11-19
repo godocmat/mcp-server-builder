@@ -146,14 +146,24 @@ impl ProcessGroup {
         Ok(unsafe { info.si_pid() } == pid)
     }
 
-    fn kill(&self) -> io::Result<()> {
+    fn kill(&mut self) -> io::Result<()> {
         let Some(pid) = self.pid else { return Ok(()) };
         // SAFETY: Spawn created a private group and its leader is still ours to reap.
         if unsafe { libc::killpg(pid, libc::SIGKILL) } != 0 {
             let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error);
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
             }
+            #[cfg(target_os = "macos")]
+            if error.raw_os_error() == Some(libc::EPERM)
+                && self.exited()?
+                && platform::group_contains_only(pid)
+            {
+                // XNU excludes zombies from group signaling and can report
+                // EPERM when our still-reserved PID is its sole member.
+                return Ok(());
+            }
+            return Err(error);
         }
         Ok(())
     }

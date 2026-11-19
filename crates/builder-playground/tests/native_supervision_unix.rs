@@ -182,3 +182,17 @@ async fn changed_image_needs_review_before_resolving_environment() {
         Some(LaunchError::ReviewMismatch)
     );
 }
+
+#[tokio::test]
+async fn stop_reaps_the_exited_only_member_of_the_group() {
+    let cwd = temp();
+    let mut spec = spec(std::env::current_exe().unwrap(), cwd.path());
+    // The fixture with no explicit environment exits immediately without a
+    // descendant. The supervisor must still reap its reserved group leader.
+    spec.environment.clear();
+    let digest = review_launch(&spec, binding()).unwrap().digest();
+    let child = spawn_reviewed(&spec, binding(), digest, |_| None).unwrap();
+    let pid = child.id();
+    child.stop().await.unwrap();
+    wait_until_exited(pid, true).await;
+}
