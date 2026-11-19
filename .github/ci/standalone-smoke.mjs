@@ -4,6 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkClientConfigurations } from "./client-configuration-smoke.mjs";
 
 const repository = fileURLToPath(new URL("../..", import.meta.url));
 const target = resolve(process.env.CARGO_TARGET_DIR ?? join(repository, "target"));
@@ -52,6 +53,17 @@ try {
     const args = [command, "--locked"];
     if (command === "test") args.push("--workspace");
     execFileSync("cargo", args, { cwd: output, env, stdio: "inherit", windowsHide: true });
+  }
+  const standalone = join(target, "debug", process.platform === "win32"
+    ? "mcp-standalone-server.exe" : "mcp-standalone-server");
+  await checkClientConfigurations({ builder, standalone, output, scratch });
+  if (process.env.MCP_BUILDER_CI_INSPECTOR_LAUNCHER) {
+    execFileSync(process.execPath, [
+      fileURLToPath(new URL("./standalone-inspector-smoke.mjs", import.meta.url)),
+      process.env.MCP_BUILDER_CI_INSPECTOR_LAUNCHER,
+      standalone,
+      builder,
+    ], { stdio: "inherit", windowsHide: true, timeout: 120_000 });
   }
 } finally {
   rmSync(scratch, { recursive: true, force: true });

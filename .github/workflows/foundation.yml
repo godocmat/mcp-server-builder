@@ -119,7 +119,16 @@ jobs:
         run: node .github/ci/cli-smoke.mjs
 
       - name: Validate, replay, and exercise a generated standalone server
-        run: node .github/ci/standalone-smoke.mjs
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $inspector = Join-Path $env:RUNNER_TEMP 'mcp-builder-ci-inspector'
+          New-Item -ItemType Directory -Path $inspector | Out-Null
+          Copy-Item -LiteralPath '.github/ci/inspector/package.json',
+            '.github/ci/inspector/package-lock.json' -Destination $inspector
+          $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+          & $npm ci --prefix $inspector --engine-strict --ignore-scripts --no-audit --no-fund
+          $env:MCP_BUILDER_CI_INSPECTOR_LAUNCHER = Join-Path $inspector 'node_modules/@modelcontextprotocol/inspector/clients/launcher/build/index.js'
+          node .github/ci/standalone-smoke.mjs
 
       - name: Exercise desktop IPC with the real playground worker
         run: |

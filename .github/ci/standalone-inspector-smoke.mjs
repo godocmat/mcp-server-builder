@@ -8,8 +8,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
-const [launcherPath, serverPath] = process.argv.slice(2);
-assert.ok(launcherPath && serverPath, "Usage: node standalone-inspector-smoke.mjs <Inspector launcher.js> <standalone executable>");
+const [launcherPath, serverPath, builderPath] = process.argv.slice(2);
+assert.ok(launcherPath && serverPath, "Usage: node standalone-inspector-smoke.mjs <Inspector launcher.js> <standalone executable> [<builder CLI>]");
 const launcher = await realpath(resolve(launcherPath));
 const standalone = await realpath(resolve(serverPath));
 const parent = await realpath(tmpdir());
@@ -65,11 +65,19 @@ try {
     approvedPromptIds: ["review_item"],
     targetBindings: { catalog_docs: { kind: "fileRead", path: documents } },
   }));
-  await writeFile(config, JSON.stringify({
-    mcpServers: {
-      catalog: { type: "stdio", command: standalone, cwd: scratch, args: ["--manifest", manifest, "--config", runtime] },
-    },
-  }));
+  if (builderPath) {
+    const builder = await realpath(resolve(builderPath));
+    await exec(builder, [
+      "client", "export", "generic", "--name", "catalog", "--executable", standalone,
+      "--manifest", manifest, "--runtime-config", runtime, "--out", config,
+    ], { cwd: scratch, timeout: 15_000, windowsHide: true });
+  } else {
+    await writeFile(config, JSON.stringify({
+      mcpServers: {
+        catalog: { type: "stdio", command: standalone, cwd: scratch, args: ["--manifest", manifest, "--config", runtime] },
+      },
+    }));
+  }
   const env = {
     ...process.env,
     MCP_STORAGE_DIR: storage,
