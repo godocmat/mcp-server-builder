@@ -94,6 +94,21 @@ pub(super) fn spawn(
     Ok(group)
 }
 
+// libproc includes zombies when listing a process group. Capacity for a second
+// member makes a count of one proof the observed exited leader is alone.
+pub(super) fn group_contains_only(pid: libc::pid_t) -> bool {
+    let mut members: [libc::pid_t; 2] = [0; 2];
+    // SAFETY: The array is writable for the supplied byte size.
+    let count = unsafe {
+        libc::proc_listpgrppids(
+            pid,
+            members.as_mut_ptr().cast(),
+            size_of_val(&members) as libc::c_int,
+        )
+    };
+    count == 1 && members[0] == pid
+}
+
 struct FileActions(libc::posix_spawn_file_actions_t);
 
 impl FileActions {
