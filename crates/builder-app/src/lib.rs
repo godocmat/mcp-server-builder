@@ -1,6 +1,7 @@
 //! Shared application services and DTOs for the CLI and desktop shells.
 
 mod catalog;
+mod client_config;
 mod diagnostic;
 mod generation;
 mod local_fs;
@@ -11,6 +12,10 @@ mod reply;
 mod smoke;
 
 pub use builder_project::{ManifestRevision, ProjectDocument, ScenarioMode, SchemaVersion};
+pub use client_config::{
+    ClientConfigExport, ClientConfigRequest, ClientConfigTarget, export_client_config,
+    save_client_config,
+};
 pub use diagnostic::{Diagnostic, DiagnosticCode, DiagnosticDetails, Severity};
 pub use generation::{
     ConflictDecision, ConflictResolution, ExportConflict, ExportPlan, FileOwner, GeneratedFile,

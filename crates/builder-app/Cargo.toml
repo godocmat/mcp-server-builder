@@ -13,10 +13,12 @@ builder-project.workspace = true
 dirs = "=7.0.0"
 dunce = "=1.0.5"
 serde.workspace = true
+serde_json.workspace = true
 sha2 = "=0.11.1"
 sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "sqlite"] }
 tempfile = "=3.27.0"
 tokio = { version = "=1.54.1", features = ["rt", "sync"] }
+toml = "=1.2.1"
 tracing.workspace = true
 uuid.workspace = true
 
@@ -27,5 +29,4 @@ libc = "=0.2.191"
 windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
-serde_json.workspace = true
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread"] }
