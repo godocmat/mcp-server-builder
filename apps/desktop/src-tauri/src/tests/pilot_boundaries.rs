@@ -184,9 +184,84 @@ fn pending_native_picker_prevents_a_second_picker_operation() {
     assert_eq!(reply["error"]["code"], "input.invalid");
     assert_eq!(
         reply["error"]["message"],
-        "A folder picker is already open."
+        "A file or folder picker is already open."
     );
     assert!(reply.get("data").is_none());
+}
+
+#[test]
+fn client_configuration_uses_native_selections_and_a_scoped_save_receipt() {
+    let pilot = Pilot::new();
+    let folder = pilot.folder("catalog export");
+    let executable = folder.join(if cfg!(windows) {
+        "mcp-standalone-server.exe"
+    } else {
+        "mcp-standalone-server"
+    });
+    let manifest = folder.join("mcp-project.json");
+    let runtime = folder.join("runtime-config.local.json");
+    fs::write(&executable, b"server fixture").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    fs::write(&manifest, b"manifest fixture").unwrap();
+    const MARKER: &str = "desktop-client-config-contents-canary";
+    fs::write(&runtime, MARKER).unwrap();
+
+    let mut request = json!({
+        "target": "generic",
+        "name": "catalog",
+        "executable": pilot.selection(&manifest, "clientManifest"),
+        "manifest": pilot.selection(&manifest, "clientManifest"),
+        "runtimeConfig": pilot.selection(&runtime, "clientRuntimeConfig"),
+    });
+    let misdirected = pilot.request("client_config_export", request.clone());
+    assert_eq!(misdirected["error"]["code"], "input.invalid");
+    request["executable"] = pilot.selection(&executable, "clientExecutable");
+    let preview = pilot.success("client_config_export", request.clone());
+    let contents = preview["contents"].as_str().unwrap();
+    let snippet: Value = serde_json::from_str(contents).unwrap();
+    assert_eq!(preview["target"], "generic");
+    assert_eq!(preview["suggestedFileName"], "mcp-catalog.mcp-client.json");
+    assert!(preview.get("destination").is_none());
+    assert!(!contents.contains(MARKER));
+    let server = &snippet["mcpServers"]["catalog"];
+    assert_eq!(server["type"], "stdio");
+    assert_eq!(
+        fs::canonicalize(server["command"].as_str().unwrap()).unwrap(),
+        fs::canonicalize(&executable).unwrap(),
+    );
+    assert_eq!(server["args"][0], "--manifest");
+    assert_eq!(server["args"][2], "--config");
+
+    let forbidden = invoke(
+        &pilot.main,
+        LOCAL_ORIGIN,
+        "client_config_save",
+        json!({ "configurationId": preview["configurationId"], "destination": runtime }),
+    );
+    assert!(forbidden.is_err());
+    let missing = pilot.request(
+        "client_config_save",
+        json!({ "configurationId": uuid::Uuid::new_v4() }),
+    );
+    assert_eq!(missing["error"]["code"], "input.invalid");
+    assert!(
+        invoke(
+            &pilot.main,
+            "https://example.invalid/",
+            "client_config_export",
+            request.clone()
+        )
+        .is_err()
+    );
+
+    fs::rename(&manifest, folder.join("original-manifest.json")).unwrap();
+    fs::write(&manifest, b"replacement").unwrap();
+    let changed = pilot.request("client_config_export", request);
+    assert_eq!(changed["error"]["code"], "export.unsafe_path");
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]

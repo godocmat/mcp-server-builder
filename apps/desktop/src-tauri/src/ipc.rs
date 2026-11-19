@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use builder_app::{Diagnostic, DiagnosticCode, ProjectService, Reply, Severity};
+use builder_app::{
+    ClientConfigExport, Diagnostic, DiagnosticCode, ProjectService, Reply, Severity,
+};
 use uuid::Uuid;
 
 use crate::{export, paths, preview};
@@ -18,6 +20,7 @@ pub(crate) struct Desktop {
     pub paths: Mutex<Handles<paths::Selection>>,
     pub picking: tokio::sync::Mutex<()>,
     pub exports: Mutex<Handles<export::PendingExport>>,
+    pub client_configs: Mutex<Handles<ClientConfigExport>>,
     pub preview: Mutex<preview::Playground>,
 }
 
@@ -28,6 +31,7 @@ impl Desktop {
             paths: Mutex::default(),
             picking: tokio::sync::Mutex::new(()),
             exports: Mutex::default(),
+            client_configs: Mutex::default(),
             preview: Mutex::default(),
         })
     }
@@ -42,6 +46,11 @@ impl Desktop {
                 };
                 state.paths.lock().expect("path table").prune();
                 state.exports.lock().expect("export table").prune();
+                state
+                    .client_configs
+                    .lock()
+                    .expect("client config table")
+                    .prune();
                 state.preview.lock().expect("playground table").prune();
             }
         });
@@ -50,6 +59,10 @@ impl Desktop {
     pub(crate) fn clear(&self) {
         self.paths.lock().expect("path table").clear();
         self.exports.lock().expect("export table").clear();
+        self.client_configs
+            .lock()
+            .expect("client config table")
+            .clear();
         self.preview.lock().expect("playground table").clear();
     }
 }
@@ -87,6 +100,11 @@ impl<T> Handles<T> {
 
     pub(crate) fn take(&mut self, id: Uuid) -> Option<T> {
         self.take_if(id, |_| true).map(|(value, _)| value)
+    }
+
+    pub(crate) fn get(&mut self, id: Uuid) -> Option<&T> {
+        self.prune();
+        self.0.get(&id).map(|entry| &entry.value)
     }
 
     pub(crate) fn take_if(

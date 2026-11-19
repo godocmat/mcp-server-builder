@@ -39,7 +39,10 @@ export type PathPurpose =
   | "recoveryDestination"
   | "exportParent"
   | "previousExport"
-  | "fileRoot";
+  | "fileRoot"
+  | "clientExecutable"
+  | "clientManifest"
+  | "clientRuntimeConfig";
 
 export function handle(selection: PathSelection): SelectionHandle {
   return { selectionId: selection.selectionId };
@@ -95,6 +98,20 @@ export interface GenerationPlan {
 export interface GenerationReceipt {
   destinationDisplayPath: string;
   generation: GenerationRecord;
+}
+
+export type ClientConfigTarget =
+  "claude-code" | "codex" | "opencode" | "generic";
+
+interface ClientConfigExport {
+  target: ClientConfigTarget;
+  suggestedFileName: string;
+  contents: string;
+  destination?: string;
+}
+
+export interface ClientConfigPreview extends ClientConfigExport {
+  configurationId: string;
 }
 
 export type ConflictDecision = "keep" | "regenerate";
@@ -294,6 +311,20 @@ type Commands = {
       resolutions?: ConflictResolution[];
     },
     GenerationReceipt
+  >;
+  client_config_export: Command<
+    {
+      target: ClientConfigTarget;
+      name: string;
+      executable: SelectionHandle;
+      manifest: SelectionHandle;
+      runtimeConfig?: SelectionHandle;
+    },
+    ClientConfigPreview
+  >;
+  client_config_save: Command<
+    { configurationId: string },
+    ClientConfigExport | null
   >;
   policy_review: Command<
     {

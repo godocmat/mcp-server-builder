@@ -18,6 +18,9 @@ enum Purpose {
     ExportParent,
     PreviousExport,
     FileRoot,
+    ClientExecutable,
+    ClientManifest,
+    ClientRuntimeConfig,
 }
 
 impl Purpose {
@@ -29,7 +32,17 @@ impl Purpose {
             Self::ExportParent => "Choose the folder that will contain the export",
             Self::PreviousExport => "Choose an existing standalone export",
             Self::FileRoot => "Choose an approved root for file reads",
+            Self::ClientExecutable => "Choose the built standalone server executable",
+            Self::ClientManifest => "Choose the exported MCP project manifest",
+            Self::ClientRuntimeConfig => "Choose a reviewed runtime configuration",
         }
+    }
+
+    fn is_file(self) -> bool {
+        matches!(
+            self,
+            Self::ClientExecutable | Self::ClientManifest | Self::ClientRuntimeConfig
+        )
     }
 }
 
@@ -54,7 +67,29 @@ pub(crate) struct PathRef {
 
 pub(crate) struct Selection {
     purpose: Purpose,
-    directory: SelectedDirectory,
+    target: SelectedTarget,
+}
+
+enum SelectedTarget {
+    Directory(SelectedDirectory),
+    File(SelectedFile),
+}
+
+impl SelectedTarget {
+    fn new(path: PathBuf, purpose: Purpose) -> Outcome<Self> {
+        if purpose.is_file() {
+            SelectedFile::new(path).map(Self::File)
+        } else {
+            SelectedDirectory::new(path).map(Self::Directory)
+        }
+    }
+
+    fn path(&self) -> &Path {
+        match self {
+            Self::Directory(directory) => &directory.path,
+            Self::File(file) => &file.path,
+        }
+    }
 }
 
 impl PathRef {
@@ -82,19 +117,55 @@ impl PathRef {
         self.take(state, Purpose::FileRoot)
     }
 
+    pub(crate) fn client_executable(self, state: &Desktop) -> Outcome<SelectedFile> {
+        self.file(state, Purpose::ClientExecutable)
+    }
+
+    pub(crate) fn client_manifest(self, state: &Desktop) -> Outcome<SelectedFile> {
+        self.file(state, Purpose::ClientManifest)
+    }
+
+    pub(crate) fn client_runtime_config(self, state: &Desktop) -> Outcome<SelectedFile> {
+        self.file(state, Purpose::ClientRuntimeConfig)
+    }
+
+    fn file(self, state: &Desktop, purpose: Purpose) -> Outcome<SelectedFile> {
+        match state
+            .paths
+            .lock()
+            .expect("path table")
+            .get(self.selection_id)
+        {
+            Some(Selection {
+                purpose: selected,
+                target: SelectedTarget::File(file),
+            }) if *selected == purpose => Ok(file.clone()),
+            _ => Err(Fault::invalid(
+                "The file selection expired or is for a different action.",
+                "Choose the file again.",
+            )),
+        }
+    }
+
     fn take(self, state: &Desktop, purpose: Purpose) -> Outcome<SelectedDirectory> {
-        state
+        match state
             .paths
             .lock()
             .expect("path table")
             .take_if(self.selection_id, |item| item.purpose == purpose)
-            .map(|(selection, _)| selection.directory)
-            .ok_or_else(|| {
-                Fault::invalid(
-                    "The folder selection expired or is for a different action.",
-                    "Choose the folder again.",
-                )
-            })
+        {
+            Some((
+                Selection {
+                    target: SelectedTarget::Directory(directory),
+                    ..
+                },
+                _,
+            )) => Ok(directory),
+            _ => Err(Fault::invalid(
+                "The folder selection expired or is for a different action.",
+                "Choose the folder again.",
+            )),
+        }
     }
 }
 
@@ -112,36 +183,74 @@ async fn pick<R: Runtime>(
     state: &Desktop,
     purpose: Purpose,
 ) -> Outcome<Option<SelectedPath>> {
-    let _picker = state.picking.try_lock().map_err(|_| {
-        Fault::invalid(
-            "A folder picker is already open.",
-            "Finish or cancel the open picker before choosing another folder.",
-        )
+    let _picker = begin_picker(state)?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let dialog = window
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_title(purpose.title());
+    let selected = move |selection| {
+        let _ = sender.send(selection);
+    };
+    if purpose.is_file() {
+        dialog.pick_file(selected);
+    } else {
+        dialog.pick_folder(selected);
+    }
+    let Some(path) = receiver.await.map_err(|_| Fault::internal())? else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|_| {
+        if purpose.is_file() {
+            unsafe_file()
+        } else {
+            unsafe_directory()
+        }
     })?;
+    let target = ipc::on_disk(move || SelectedTarget::new(path, purpose)).await?;
+    let display_path = display_path(target.path());
+    let selection_id = state
+        .paths
+        .lock()
+        .expect("path table")
+        .insert(Selection { purpose, target })?;
+    Ok(Some(SelectedPath {
+        selection_id,
+        display_path,
+    }))
+}
+
+pub(crate) async fn pick_new_file<R: Runtime>(
+    window: &WebviewWindow<R>,
+    state: &Desktop,
+    suggested_file_name: &str,
+) -> Outcome<Option<PathBuf>> {
+    let _picker = begin_picker(state)?;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     window
         .dialog()
         .file()
         .set_parent(window)
-        .set_title(purpose.title())
-        .pick_folder(move |selection| {
+        .set_title("Save a new MCP client configuration file")
+        .set_file_name(suggested_file_name)
+        .save_file(move |selection| {
             let _ = sender.send(selection);
         });
-    let Some(path) = receiver.await.map_err(|_| Fault::internal())? else {
-        return Ok(None);
-    };
-    let path = path.into_path().map_err(|_| unsafe_directory())?;
-    let directory = ipc::on_disk(move || SelectedDirectory::new(path)).await?;
-    let display_path = display_path(&directory.path);
-    let selection_id = state
-        .paths
-        .lock()
-        .expect("path table")
-        .insert(Selection { purpose, directory })?;
-    Ok(Some(SelectedPath {
-        selection_id,
-        display_path,
-    }))
+    receiver
+        .await
+        .map_err(|_| Fault::internal())?
+        .map(|selection| selection.into_path().map_err(|_| unsafe_file()))
+        .transpose()
+}
+
+fn begin_picker(state: &Desktop) -> Outcome<tokio::sync::MutexGuard<'_, ()>> {
+    state.picking.try_lock().map_err(|_| {
+        Fault::invalid(
+            "A file or folder picker is already open.",
+            "Finish or cancel the open picker and try again.",
+        )
+    })
 }
 
 pub(crate) fn display_path(path: &Path) -> String {
@@ -157,9 +266,92 @@ pub(crate) fn unsafe_directory() -> Fault {
     )
 }
 
+fn unsafe_file() -> Fault {
+    Fault::new(
+        DiagnosticCode::ExportUnsafePath,
+        "The selected local file is unavailable or has changed.",
+        "Choose an accessible local file and try again.",
+        None,
+    )
+}
+
+#[derive(Clone)]
+pub(crate) struct SelectedFile {
+    path: PathBuf,
+    identity: PathIdentity,
+}
+
+impl SelectedFile {
+    fn new(path: PathBuf) -> Outcome<Self> {
+        if !path.is_absolute() || path.to_str().is_none() {
+            return Err(unsafe_file());
+        }
+        let (_, identity) = pin_file(&path)?;
+        Ok(Self { path, identity })
+    }
+
+    pub(crate) fn pin_now(&self) -> Outcome<PinnedFile> {
+        let (file, identity) = pin_file(&self.path)?;
+        if identity != self.identity {
+            return Err(unsafe_file());
+        }
+        Ok(file)
+    }
+}
+
+pub(crate) struct PinnedFile {
+    pub path: PathBuf,
+    _parent: PinnedDirectory,
+    #[cfg(windows)]
+    _file: fs::File,
+}
+
+fn pin_file(path: &Path) -> Outcome<(PinnedFile, PathIdentity)> {
+    let parent_path = path.parent().ok_or_else(unsafe_file)?;
+    let (parent, _) = pin_directory(parent_path).map_err(|_| unsafe_file())?;
+    #[cfg(windows)]
+    let (file, identity) = {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+        let file = fs::OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .map_err(|_| unsafe_file())?;
+        let metadata = file.metadata().map_err(|_| unsafe_file())?;
+        if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(unsafe_file());
+        }
+        let identity = handle_identity(&file).map_err(|_| unsafe_file())?;
+        (file, identity)
+    };
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::symlink_metadata(path).map_err(|_| unsafe_file())?;
+        if !metadata.is_file() {
+            return Err(unsafe_file());
+        }
+        PathIdentity(metadata.dev(), metadata.ino())
+    };
+    Ok((
+        PinnedFile {
+            path: path.to_path_buf(),
+            _parent: parent,
+            #[cfg(windows)]
+            _file: file,
+        },
+        identity,
+    ))
+}
+
 pub(crate) struct SelectedDirectory {
     path: PathBuf,
-    identity: DirectoryIdentity,
+    identity: PathIdentity,
 }
 
 impl SelectedDirectory {
@@ -190,18 +382,16 @@ pub(crate) struct PinnedDirectory {
     _ancestors: Vec<fs::File>,
 }
 
-#[derive(PartialEq, Eq)]
-struct DirectoryIdentity(u64, u64);
+#[derive(Clone, PartialEq, Eq)]
+struct PathIdentity(u64, u64);
 
 #[cfg(windows)]
-fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, DirectoryIdentity)> {
+fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, PathIdentity)> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-    use std::os::windows::io::AsRawHandle;
     use std::path::{Component, Prefix};
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        GetFileInformationByHandle,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
     };
 
     if !matches!(
@@ -228,15 +418,7 @@ fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, DirectoryIdentity)> {
         ancestors.push(file);
     }
     let file = ancestors.last().ok_or_else(unsafe_directory)?;
-    let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    // SAFETY: The handle is live and the buffer is valid for one complete result.
-    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
-        return Err(unsafe_directory());
-    }
-    let identity = DirectoryIdentity(
-        u64::from(info.dwVolumeSerialNumber),
-        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
-    );
+    let identity = handle_identity(file).map_err(|_| unsafe_directory())?;
     Ok((
         PinnedDirectory {
             path: path.to_path_buf(),
@@ -246,8 +428,25 @@ fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, DirectoryIdentity)> {
     ))
 }
 
+#[cfg(windows)]
+fn handle_identity(file: &fs::File) -> std::io::Result<PathIdentity> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: The handle is live and the buffer is valid for one complete result.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(PathIdentity(
+        u64::from(info.dwVolumeSerialNumber),
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    ))
+}
+
 #[cfg(unix)]
-fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, DirectoryIdentity)> {
+fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, PathIdentity)> {
     use std::os::unix::fs::MetadataExt;
 
     for ancestor in path.ancestors() {
@@ -260,7 +459,7 @@ fn pin_directory(path: &Path) -> Outcome<(PinnedDirectory, DirectoryIdentity)> {
         PinnedDirectory {
             path: path.to_path_buf(),
         },
-        DirectoryIdentity(metadata.dev(), metadata.ino()),
+        PathIdentity(metadata.dev(), metadata.ino()),
     ))
 }
 
@@ -271,12 +470,12 @@ pub(crate) mod tests {
 
     pub(crate) fn record_fixture_selection(state: &Desktop, path: &Path, purpose: &str) -> Uuid {
         let purpose = serde_json::from_value(serde_json::json!(purpose)).unwrap();
-        let directory = SelectedDirectory::new(fs::canonicalize(path).unwrap()).unwrap();
+        let target = SelectedTarget::new(fs::canonicalize(path).unwrap(), purpose).unwrap();
         state
             .paths
             .lock()
             .unwrap()
-            .insert(Selection { purpose, directory })
+            .insert(Selection { purpose, target })
             .unwrap()
     }
 

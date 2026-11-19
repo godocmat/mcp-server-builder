@@ -5,6 +5,7 @@ import {
   input,
   signal,
 } from "@angular/core";
+import { ClientConfigPanelComponent } from "./client-config-panel.component";
 import { DiagnosticsComponent } from "./diagnostics.component";
 import {
   desktop,
@@ -20,7 +21,7 @@ import type { ProjectSnapshot } from "./project-model";
 
 @Component({
   selector: "app-export-panel",
-  imports: [DiagnosticsComponent],
+  imports: [ClientConfigPanelComponent, DiagnosticsComponent],
   templateUrl: "./export-panel.component.html",
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

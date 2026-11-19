@@ -9,6 +9,8 @@ pub const MAIN_COMMANDS: &[&str] = &[
     "project_recover",
     "generation_plan",
     "generation_write",
+    "client_config_export",
+    "client_config_save",
     "policy_review",
     "policy_approve",
     "playground_start",

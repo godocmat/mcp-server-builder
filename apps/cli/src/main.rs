@@ -14,6 +14,7 @@ use tracing_subscriber::{
 };
 use uuid::Uuid;
 
+mod client;
 mod playground;
 mod project;
 
@@ -68,6 +69,11 @@ enum Command {
         /// Show the generation plan and conflicts before writing files.
         #[arg(long)]
         preview: bool,
+    },
+    /// Export configuration for an MCP client.
+    Client {
+        #[command(subcommand)]
+        action: client::Action,
     },
     /// Review and replay a saved scenario in a managed stdio preview.
     Playground {
@@ -348,6 +354,7 @@ fn run(args: &[std::ffi::OsString]) -> io::Result<ExitCode> {
             });
             finish("generate", &reply, json, write_generation)
         }
+        Command::Client { action } => client::run(action, json),
         Command::Playground { action } => playground::run_legacy(action, json),
     }
 }

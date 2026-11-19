@@ -649,6 +649,102 @@ describe("desktop MVP workflow", () => {
     expect(visibleText(fixture)).not.toContain("[REDACTED]");
   });
 
+  it("previews, copies and saves an MCP client snippet through scoped handles", async () => {
+    const output = {
+      configurationId: "configuration-receipt",
+      target: "generic",
+      suggestedFileName: "mcp-catalog.mcp-client.json",
+      contents: '{ "mcpServers": { "catalog": { "type": "stdio" } } }\n',
+    };
+    const { fixture, invoke } = await createWorkspace((command, data) => {
+      switch (command) {
+        case "project_list":
+          return success([]);
+        case "select_path": {
+          const purpose = (data["request"] as { purpose: string }).purpose;
+          return success({
+            selectionId: purpose,
+            displayPath: root + "/" + purpose,
+          });
+        }
+        case "project_open":
+          return success(snapshot);
+        case "client_config_export":
+          return success(output);
+        case "client_config_save":
+          return success({ ...output, destination: output.suggestedFileName });
+        default:
+          throw new Error(command);
+      }
+    });
+    await openFolder(fixture);
+    await click(fixture, "Export");
+    expect(visibleText(fixture)).toContain("MCP client configuration");
+    await edit(fixture, "client-config-target", "generic", "change");
+    await edit(fixture, "client-config-name", "catalog");
+    await click(fixture, "Generate client configuration");
+    expect(
+      invoke.mock.calls.some(([command]) => command === "client_config_export"),
+    ).toBe(false);
+    await click(fixture, "Choose server executable");
+    await click(fixture, "Choose exported manifest");
+    await click(fixture, "Choose runtime config (optional)");
+    await click(fixture, "Generate client configuration");
+    expect(invoke).toHaveBeenCalledWith("client_config_export", {
+      request: {
+        target: "generic",
+        name: "catalog",
+        executable: { selectionId: "clientExecutable" },
+        manifest: { selectionId: "clientManifest" },
+        runtimeConfig: { selectionId: "clientRuntimeConfig" },
+      },
+    });
+    const text = get<HTMLTextAreaElement>(fixture, "client-config-snippet");
+    expect(text.readOnly).toBe(true);
+    expect(text.value).toBe(output.contents);
+    expect(visibleText(fixture)).toContain("--config and --server");
+
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Clipboard unavailable"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    try {
+      await click(fixture, "Copy client configuration");
+      expect(writeText).toHaveBeenCalledWith(output.contents);
+      await click(fixture, "Copy client configuration");
+      expect(text.selectionStart).toBe(0);
+      expect(text.selectionEnd).toBe(output.contents.length);
+      expect(visibleText(fixture)).toContain("selected for manual copying");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+
+    await click(fixture, "Save client configuration");
+    expect(invoke).toHaveBeenCalledWith("client_config_save", {
+      request: { configurationId: output.configurationId },
+    });
+    expect(visibleText(fixture)).toContain(output.suggestedFileName);
+    await click(fixture, "Clear runtime config");
+    expect(
+      fixture.nativeElement.querySelector("#client-config-snippet"),
+    ).toBeNull();
+    await click(fixture, "Generate client configuration");
+    expect(invoke).toHaveBeenLastCalledWith("client_config_export", {
+      request: {
+        target: "generic",
+        name: "catalog",
+        executable: { selectionId: "clientExecutable" },
+        manifest: { selectionId: "clientManifest" },
+      },
+    });
+  });
+
   it("writes a reviewed export only after every conflict has an explicit decision", async () => {
     const conflict: ExportConflict = {
       path: "Cargo.toml",

@@ -15,6 +15,8 @@
     "allow-project-recover",
     "allow-generation-plan",
     "allow-generation-write",
+    "allow-client-config-export",
+    "allow-client-config-save",
     "allow-policy-review",
     "allow-policy-approve",
     "allow-playground-start",

@@ -1,0 +1,109 @@
+<section class="sub-panel" aria-labelledby="client-config-heading">
+  <h3 id="client-config-heading">MCP client configuration</h3>
+  <p class="quiet">
+    Build the standalone server first. Then choose its executable and exported
+    manifest. Include a reviewed runtime config if the server needs approved
+    capabilities.
+  </p>
+  <app-diagnostics [diagnostics]="diagnostics()" />
+  <fieldset class="plain-fieldset" [disabled]="busy()">
+    <div class="editor-field">
+      <label for="client-config-target">Client</label>
+      <select
+        id="client-config-target"
+        [value]="target()"
+        (change)="changeTarget($event)"
+      >
+        <option value="claude-code">Claude Code</option>
+        <option value="codex">Codex</option>
+        <option value="opencode">OpenCode</option>
+        <option value="generic">MCP Inspector / generic</option>
+      </select>
+    </div>
+    <div class="editor-field">
+      <label for="client-config-name">Server name</label>
+      <input
+        id="client-config-name"
+        [value]="name()"
+        (input)="changeName($event)"
+        maxlength="64"
+        aria-describedby="client-config-name-help"
+      />
+      <small id="client-config-name-help"
+        >Start with a letter or number. Use letters, digits, underscores, and
+        hyphens.</small
+      >
+    </div>
+    <div class="picker-row">
+      <button type="button" class="secondary" (click)="choose('executable')">
+        Choose server executable
+      </button>
+      <span>{{
+        files().executable?.displayPath ?? "No executable selected"
+      }}</span>
+    </div>
+    <div class="picker-row">
+      <button type="button" class="secondary" (click)="choose('manifest')">
+        Choose exported manifest
+      </button>
+      <span>{{ files().manifest?.displayPath ?? "No manifest selected" }}</span>
+    </div>
+    <div class="picker-row">
+      <button type="button" class="secondary" (click)="choose('runtimeConfig')">
+        Choose runtime config (optional)
+      </button>
+      @if (files().runtimeConfig; as runtime) {
+        <span>{{ runtime.displayPath }}</span>
+        <button
+          type="button"
+          class="quiet-button"
+          (click)="clearRuntimeConfig()"
+        >
+          Clear runtime config
+        </button>
+      }
+    </div>
+    <button type="button" [disabled]="!ready()" (click)="generate()">
+      Generate client configuration
+    </button>
+  </fieldset>
+
+  @if (output(); as result) {
+    <p class="quiet">{{ instructions[result.target] }}</p>
+    <div class="editor-field">
+      <label for="client-config-snippet">Client configuration snippet</label>
+      <textarea
+        #snippet
+        id="client-config-snippet"
+        [value]="result.contents"
+        rows="10"
+        spellcheck="false"
+        readonly
+      ></textarea>
+      <small
+        >Suggested filename <code>{{ result.suggestedFileName }}</code></small
+      >
+    </div>
+    <div class="picker-row">
+      <button
+        type="button"
+        class="secondary"
+        [disabled]="busy()"
+        (click)="copy(snippet)"
+      >
+        Copy client configuration
+      </button>
+      <button
+        type="button"
+        class="secondary"
+        [disabled]="busy()"
+        (click)="save()"
+      >
+        Save client configuration
+      </button>
+    </div>
+  }
+  <p class="status" role="status">
+    {{ busy() ? "Working on client configuration…" : status() }}
+  </p>
+</section>

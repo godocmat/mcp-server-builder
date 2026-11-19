@@ -3,6 +3,7 @@
 #[cfg(all(feature = "ci-webdriver", not(debug_assertions)))]
 compile_error!("ci-webdriver requires a debug build");
 
+mod client;
 mod export;
 mod ipc;
 mod paths;
@@ -72,6 +73,8 @@ fn desktop_builder<R: Runtime>(
             project::project_recover,
             export::generation_plan,
             export::generation_write,
+            client::client_config_export,
+            client::client_config_save,
             preview::policy_review,
             preview::policy_approve,
             preview::playground_start,
