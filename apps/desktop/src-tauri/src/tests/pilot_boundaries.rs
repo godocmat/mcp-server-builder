@@ -57,7 +57,7 @@ impl Pilot {
         )
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     fn terminal_event(&self, id: &Value) -> Value {
         use std::time::{Duration, Instant};
 
@@ -189,7 +189,7 @@ fn pending_native_picker_prevents_a_second_picker_operation() {
     assert!(reply.get("data").is_none());
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn export_binding_requires_the_reviewed_destination_digest_and_current_revision() {
     const MARKER: &str = "export-secret-canary-6f3d54";
@@ -289,9 +289,9 @@ fn preview_rejects_invalid_credential_input_without_echoing_it() {
     assert!(reply.get("data").is_none());
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
-#[ignore = "stage the built mcp-builder.exe next to the desktop test executable"]
+#[ignore = "stage the built mcp-builder CLI next to the desktop test executable"]
 fn reviewed_live_call_checks_scope_before_reading_and_retires_the_connection() {
     const MARKER: &str = "native-review-credential-canary-499d";
     const UNAPPROVED: &str = "unapproved-local-note-f8b3";

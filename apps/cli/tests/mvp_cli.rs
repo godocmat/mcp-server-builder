@@ -374,8 +374,8 @@ fn cli_export_conflict_requests_a_new_review_without_printing_file_contents() {
     assert_eq!(fs::read_to_string(lock).unwrap(), edited);
 }
 
-#[cfg(windows)]
-mod windows {
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod replay {
     use super::*;
 
     const ACCESS: &[&str] = &[

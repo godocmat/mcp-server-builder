@@ -413,6 +413,7 @@ name = "builder-playground"
 version = "0.1.0"
 dependencies = [
  "builder-project",
+ "libc",
  "mcp-policy",
  "mcp-runtime",
  "mcp-starter-adapters",
@@ -2630,6 +2631,7 @@ version = "0.1.0"
 dependencies = [
  "builder-app",
  "clap",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

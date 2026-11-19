@@ -1,6 +1,6 @@
 # Local MVP CLI
 
-The builder CLI opens the same schema 1 project as the desktop editor. A project folder contains `mcp-project.json`. Put the first-party `mcp-builder` executable on PATH or invoke it by its full path. Managed fixture replay uses the Windows stdio worker. [Reference project](requirements.md#reference-project) · [Managed playground](local-playground.md)
+The builder CLI opens the same schema 1 project as the desktop editor. A project folder contains `mcp-project.json`. Put the first-party `mcp-builder` executable on PATH or invoke it by its full path. Managed fixture replay uses a first-party stdio worker on Windows, macOS, and Linux. [Reference project](requirements.md#reference-project) · [Managed playground](local-playground.md)
 
 ## Open, edit, and export
 

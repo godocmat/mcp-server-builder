@@ -20,3 +20,6 @@ tempfile = "=3.27.0"
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
+libc = "=0.2.191"

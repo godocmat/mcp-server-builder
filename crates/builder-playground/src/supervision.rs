@@ -7,6 +7,7 @@
 //! the process to a kill-on-close job at creation. It contains normal child processes
 //! created within that job. The program still runs with the operator's OS privileges,
 //! and the installation, its dependencies and the working directory must be trusted.
+//! Linux and macOS assign the first-party worker to a private process group.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -20,6 +21,13 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+use windows as native;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod unix;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use unix as native;
 
 /// A selected native command. Arguments and literal environment values are public
 /// configuration. Sensitive values must be represented by a reference.
@@ -122,11 +130,11 @@ pub fn review_launch(
     spec: &LaunchSpec,
     binding: ManifestRevision,
 ) -> Result<LaunchReview, LaunchError> {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
-        Ok(windows::PreparedLaunch::new(spec, binding)?.review)
+        Ok(native::PreparedLaunch::new(spec, binding)?.review)
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = (spec, binding);
         Err(LaunchError::UnsupportedPlatform)
@@ -134,7 +142,7 @@ pub fn review_launch(
 }
 
 /// Start the exact launch described by an already admitted approval. The trusted caller
-/// must consume one-use approval before calling. Windows requires an entered Tokio runtime
+/// must consume one-use approval before calling. Enter a Tokio runtime
 /// with I/O enabled. Reinspection and process creation are synchronous. The returned pipes
 /// are asynchronous, with framing and message limits enforced by the stdio client.
 pub fn spawn_reviewed(
@@ -143,9 +151,9 @@ pub fn spawn_reviewed(
     reviewed_digest: ManifestRevision,
     resolve_secret: impl FnMut(&str) -> Option<OsString>,
 ) -> Result<SupervisedChild, LaunchError> {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
-        let prepared = windows::PreparedLaunch::new(spec, binding).map_err(|error| {
+        let prepared = native::PreparedLaunch::new(spec, binding).map_err(|error| {
             if error == LaunchError::InvalidSpec {
                 LaunchError::ReviewMismatch
             } else {
@@ -157,7 +165,7 @@ pub fn spawn_reviewed(
         }
         prepared.spawn(resolve_secret)
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = (spec, binding, reviewed_digest, resolve_secret);
         Err(LaunchError::UnsupportedPlatform)
@@ -167,57 +175,61 @@ pub fn spawn_reviewed(
 /// A supervised process and its available stdio endpoints. Dropping the owner closes the
 /// input and enforces containment, including when a stop future is canceled.
 pub struct SupervisedChild {
-    #[cfg(windows)]
-    inner: windows::NativeChild,
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    inner: native::NativeChild,
 }
 
 impl SupervisedChild {
     pub fn id(&self) -> u32 {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return self.inner.id();
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         unreachable!("native process construction is unsupported");
     }
 
     pub fn take_stdin(&mut self) -> Option<ChildStdin> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return self.inner.take_stdin().map(ChildStdin);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         None
     }
 
     pub fn take_stdout(&mut self) -> Option<ChildStdout> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return self.inner.take_stdout().map(ChildStdout);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         None
     }
 
     pub fn take_stderr(&mut self) -> Option<ChildStderr> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return self.inner.take_stderr().map(ChildStderr);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         None
     }
 
     /// Close the child's input, allow up to two seconds for graceful exit, then
     /// terminate and check that the supervised processes exited within five seconds total.
     pub async fn stop(self) -> Result<(), LaunchError> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return self.inner.stop().await;
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         Err(LaunchError::UnsupportedPlatform)
     }
 }
 
-pub struct ChildStdin(#[cfg(windows)] windows::Input);
-pub struct ChildStdout(#[cfg(windows)] tokio::net::windows::named_pipe::NamedPipeServer);
-pub struct ChildStderr(#[cfg(windows)] tokio::net::windows::named_pipe::NamedPipeServer);
+pub struct ChildStdin(#[cfg(any(windows, target_os = "linux", target_os = "macos"))] native::Input);
+pub struct ChildStdout(
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))] native::Output,
+);
+pub struct ChildStderr(
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))] native::Output,
+);
 
 impl AsyncWrite for ChildStdin {
     fn poll_write(
@@ -225,10 +237,10 @@ impl AsyncWrite for ChildStdin {
         context: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return Pin::new(&mut self.get_mut().0).poll_write(context, bytes);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         {
             let _ = (self, context, bytes);
             Poll::Ready(Err(io::ErrorKind::Unsupported.into()))
@@ -236,10 +248,10 @@ impl AsyncWrite for ChildStdin {
     }
 
     fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return Pin::new(&mut self.get_mut().0).poll_flush(context);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         {
             let _ = (self, context);
             Poll::Ready(Err(io::ErrorKind::Unsupported.into()))
@@ -247,10 +259,10 @@ impl AsyncWrite for ChildStdin {
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return Pin::new(&mut self.get_mut().0).poll_shutdown(context);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         {
             let _ = (self, context);
             Poll::Ready(Err(io::ErrorKind::Unsupported.into()))
@@ -264,10 +276,10 @@ impl AsyncRead for ChildStdout {
         context: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return Pin::new(&mut self.get_mut().0).poll_read(context, buffer);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         {
             let _ = (self, context, buffer);
             Poll::Ready(Err(io::ErrorKind::Unsupported.into()))
@@ -281,10 +293,10 @@ impl AsyncRead for ChildStderr {
         context: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return Pin::new(&mut self.get_mut().0).poll_read(context, buffer);
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         {
             let _ = (self, context, buffer);
             Poll::Ready(Err(io::ErrorKind::Unsupported.into()))
