@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "externalBin": ["binaries/mcp-builder"],
+    "shortDescription": "Build and test local MCP servers",
+    "macOS": { "signingIdentity": "-" },
+    "linux": { "deb": { "section": "devel" } }
+  }
+}

@@ -32,18 +32,16 @@ try {
     join(project, "mcp-project.json"),
   );
   assert.equal(builderJson("project.validate", ["project", "validate", project]).valid, true);
-  if (process.platform === "win32") {
-    const inputs = [project, "--all", "--grant", "catalog_read", "--grant", "note_read",
-      "--prompt", "review_item"];
-    const { digest } = builderJson("policy.review.launch", ["policy", "review", "launch", ...inputs]);
-    assert.match(digest, /^sha256:[a-f\d]{64}$/);
-    for (let replay = 0; replay < 2; replay++) {
-      const { runs } = builderJson("test.run", ["test", "run", ...inputs, "--approve", digest]);
-      assert.deepEqual(runs.map(run => run.scenarioId), ["known_item", "invalid_item", "note", "review"]);
-      assert.ok(runs.every(run => run.outcome === "passed"));
-    }
-    console.log("The four catalog scenarios passed two independent managed replays.");
+  const inputs = [project, "--all", "--grant", "catalog_read", "--grant", "note_read",
+    "--prompt", "review_item"];
+  const { digest } = builderJson("policy.review.launch", ["policy", "review", "launch", ...inputs]);
+  assert.match(digest, /^sha256:[a-f\d]{64}$/);
+  for (let replay = 0; replay < 2; replay++) {
+    const { runs } = builderJson("test.run", ["test", "run", ...inputs, "--approve", digest]);
+    assert.deepEqual(runs.map(run => run.scenarioId), ["known_item", "invalid_item", "note", "review"]);
+    assert.ok(runs.every(run => run.outcome === "passed"));
   }
+  console.log("The four catalog scenarios passed two independent managed replays.");
 
   const result = builderJson("generate", ["generate", project, "--out", output]);
   assert.equal(result.published, true);

@@ -1,54 +1,113 @@
-name: Windows pilot
+name: Desktop release installers
 
 on:
   workflow_dispatch:
   push:
-    branches: [codex/m10-integration]
+    branches: ['codex/release-*']
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-pilot-${{ github.ref }}
+  group: desktop-installers-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
 jobs:
-  installed-pilot:
-    name: Installed pilot (windows-2025)
-    runs-on: windows-2025
+  installed:
+    name: Installed release (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            arch: x64
+            rust-host: x86_64-pc-windows-msvc
+          - runner: macos-26
+            arch: arm64
+            rust-host: aarch64-apple-darwin
+          - runner: ubuntu-24.04
+            arch: x64
+            rust-host: x86_64-unknown-linux-gnu
     defaults:
       run:
         shell: pwsh
-    env:
-      AWS_LC_SYS_PREBUILT_NASM: "1"
-      CARGO_INCREMENTAL: "0"
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Check Windows tooling
+        if: runner.os == 'Windows'
         run: ./.github/ci/windows-prerequisites.ps1
+
+      - name: Install Ubuntu build and display dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config file libwebkit2gtk-4.1-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev xvfb xauth dbus \
+            fonts-dejavu-core xdotool
+
+      - name: Confirm native Rust target
+        env:
+          EXPECTED_RUST_HOST: ${{ matrix.rust-host }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $compiler = rustc -vV
+          $compiler
+          if ("host: $env:EXPECTED_RUST_HOST" -notin $compiler) {
+            throw "Expected Rust host $env:EXPECTED_RUST_HOST"
+          }
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          architecture: x64
+          architecture: ${{ matrix.arch }}
           package-manager-cache: false
 
       - name: Install locked desktop dependencies
         working-directory: apps/desktop
-        run: npm.cmd ci --engine-strict
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+          & $npm ci --engine-strict
 
-      - name: Build unsigned pilot from the checked-out commit
-        run: ./apps/desktop/scripts/build-windows-pilot.ps1
+      - name: Build the native installer
+        env:
+          AWS_LC_SYS_PREBUILT_NASM: "1"
+        run: |
+          if ($IsWindows) {
+            ./apps/desktop/scripts/build-windows-pilot.ps1
+          } else {
+            ./apps/desktop/scripts/build-unix-release.ps1
+          }
 
-      - name: Install, check the GUI, replay, build an export, and uninstall
-        id: installed
+      - name: Test the installed Windows desktop, CLI and standalone export
+        if: runner.os == 'Windows'
+        id: windows-installed
+        env:
+          AWS_LC_SYS_PREBUILT_NASM: "1"
         run: ./.github/ci/installed-pilot.ps1
+
+      - name: Test the installed Unix desktop, CLI and standalone export
+        if: runner.os != 'Windows'
+        id: unix-installed
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a dbus-run-session -- bash ./.github/ci/installed-unix-release.sh
+          else
+            bash ./.github/ci/installed-unix-release.sh
+          fi
 
       - name: Verify lockfiles stayed intact
         run: git diff --exit-code -- Cargo.lock apps/desktop/package-lock.json
@@ -56,14 +115,15 @@ jobs:
       - name: Package the verified installer and distribution notices
         id: package
         env:
-          VERIFIED_INSTALLER_SHA256: ${{ steps.installed.outputs.installer-sha256 }}
-        run: ./.github/ci/stage-windows-pilot.ps1 -VerifiedInstallerSha256 $env:VERIFIED_INSTALLER_SHA256
+          TARGET_TRIPLE: ${{ matrix.rust-host }}
+          VERIFIED_INSTALLER_SHA256: ${{ steps.windows-installed.outputs.installer-sha256 || steps.unix-installed.outputs.installer-sha256 }}
+        run: ./.github/ci/stage-desktop-release.ps1 -TargetTriple $env:TARGET_TRIPLE -VerifiedInstallerSha256 $env:VERIFIED_INSTALLER_SHA256
 
-      - name: Upload the verified Windows pilot
+      - name: Upload the verified installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.package.outputs.artifact-name }}
-          path: target/windows-pilot-release/
+          path: target/desktop-release/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

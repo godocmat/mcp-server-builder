@@ -1,20 +1,20 @@
 # Deployment and release plan
 
-Phase 0 · D4 · Sources checked 12 November 2026
+The desktop release includes the builder and CLI for local stdio workflows. The later sections describe a proposed remote HTTP deployment profile. [Product plan](../PLAN.md) · [Testing plan](testing.md)
 
-The Windows pilot ships the desktop builder and CLI for local stdio workflows. The proposed commercial v1 covers three desktop targets and two ways to run a generated HTTP server on Linux. The platform, package, toolchain and ingress choices below are candidates. F1/F2 prove the build inputs, M10 records the Windows pilot run, and R1/R2/R4/R5 establish release support from clean targets. [Product plan](../PLAN.md) · [Task backlog](../TASKS.md) · [Testing plan](testing.md)
+## Desktop package targets
 
-## Proposed platform targets
-
-| Release target | Package and build worker | Acceptance environment and evidence |
+| Package | Target environment | CLI path |
 | --- | --- | --- |
-| Windows pilot and v1 · Windows 11 25H2 x64, starting with Pro | Per-user Tauri NSIS `-setup.exe`, Rust `x86_64-pc-windows-msvc`, GitHub Actions `windows-2025` x64. CLI included with a documented shell entry point. | Clean, patched Windows 11 x64 VM with a normal user and NTFS. Install, launch, run the catalog GUI → CLI → standalone flow, then test upgrade and uninstall with a saved project. Record WebView2 version and test existing-runtime and bootstrapper paths. Check package signature when present, argument fidelity, Job Object cleanup, and the applicable credential and accessibility flows. M8/M10 for the pilot, R2/R4/R5 for v1. [Windows lifecycle](https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro) · [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/) |
-| Commercial v1 · macOS 26 Tahoe on Apple silicon | Tauri `.app` in a `.dmg`, Rust `aarch64-apple-darwin`, `macos-26` arm64. CLI included in the distribution with a documented shell entry point. | Clean Apple silicon Mac with patched macOS 26 and APFS. Verify native arm64 launch from a downloaded, quarantined DMG under Gatekeeper. Exercise install, upgrade, WKWebView, Keychain and VoiceOver, CLI launch from a fresh shell, and the supported stdio descendant cleanup. R2/R4/R5. [Supported Macs](https://support.apple.com/en-us/122867) · [Tauri DMG](https://v2.tauri.app/distribute/dmg/) |
-| Commercial v1 · Ubuntu 24.04 LTS Desktop amd64, stock GNOME session | Tauri `.deb` including a CLI entry point, Rust `x86_64-unknown-linux-gnu`, `ubuntu-24.04` x64. | Clean, patched Ubuntu Desktop amd64 VM with ext4 and the stock graphical session. Install with APT dependency resolution, launch from the desktop and a fresh shell, check WebKitGTK rendering, then upgrade and remove the package. Check Secret Service, its headless fallback, Orca, and process and filesystem boundaries. R2/R4/R5. [Ubuntu lifecycle](https://ubuntu.com/about/release-cycle) · [Tauri Debian packages](https://v2.tauri.app/distribute/debian/) |
-| Commercial v1 · Ubuntu 24.04 LTS Server amd64, native service | Generated Cargo project builds a release binary for `x86_64-unknown-linux-gnu`. R1 supplies systemd and ingress instructions. `ubuntu-24.04` x64 builds and tests the export. | Clean Ubuntu Server amd64 VM. Build from the export, run under a dedicated service account, and complete the authenticated ingress and operations drill below. R1 and R5 record host and service versions. [Ubuntu systemd service manual](https://manpages.ubuntu.com/manpages/noble/en/man5/systemd.service.5.html) |
-| Commercial v1 · Docker `linux/amd64` on Ubuntu 24.04 LTS Server amd64 | Generated multi-stage Dockerfile and Compose project. `ubuntu-24.04` x64 builds and scans the image. | Clean Ubuntu Server amd64 VM with the documented Docker Engine and Compose plugin. Build from the export, then repeat from the candidate image digest. Verify the selected image architecture, least-privilege mounts, and the same authenticated operations drill. R1 and R5. [Docker Engine on Ubuntu](https://docs.docker.com/engine/install/ubuntu/) · [Compose plugin](https://docs.docker.com/compose/install/linux/) |
+| Windows NSIS `.exe` | Windows x64 with WebView2, built on `windows-2025`. | `mcp-builder.exe` beside the desktop executable. |
+| macOS `.dmg` | Apple silicon with WKWebView, built on `macos-26` arm64. | `/Applications/MCP Server Builder.app/Contents/MacOS/mcp-builder` after the app is copied into Applications. |
+| Ubuntu `.deb` | Ubuntu 24.04 amd64 with WebKitGTK, built on `ubuntu-24.04`. | `/usr/bin/mcp-builder`, also available as `mcp-builder` on `PATH`. |
 
-Keep the initial matrix to these rows. Additional Windows editions and releases, Windows arm64, Intel Macs, other macOS releases or Linux distributions, Linux arm64, additional installer formats and offline Windows bundles need their own build and acceptance rows if selected. Recheck vendor support windows before each release. The Rust project lists all three proposed triples as Tier 1 with host tools. GitHub's pinned OS labels select the worker family and architecture. `windows-2025` runs Windows Server 2025, so it supplies build and automated smoke evidence while the Windows 11 VM supplies installer and interactive evidence. [Rust platform support](https://doc.rust-lang.org/rustc/platform-support.html#tier-1-with-host-tools) · [GitHub-hosted runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) · [Runner images](https://github.com/actions/runner-images)
+Each release ZIP includes the native installer, `SHA256SUMS.txt` for the extracted installer, the source commit in `BUILD-INFO.txt`, and distribution notices. Match the published `.zip.sha256` companion to the ZIP before extracting it. Use `shasum -a 256 -c` on macOS or `sha256sum -c` on Ubuntu with the checksum filename, or use `Get-FileHash -Algorithm SHA256` on Windows with the ZIP filename. Run checksum-file commands from the directory that contains the named download. [GitHub Releases](https://github.com/godocmat/mcp-server-builder/releases)
+
+Open the DMG on macOS and drag **MCP Server Builder** into Applications. This DMG contains an ad hoc signed, unnotarized app. If macOS blocks first launch, verify the download and use **System Settings → Privacy & Security → Open Anyway** for this app if your device policy permits it. [Apple's instructions for opening an app from an unidentified developer](https://support.apple.com/en-us/102445)
+
+On Ubuntu run `sudo apt install ./mcp-server-builder-0.2.0-linux-x64.deb` from the directory where you extracted the ZIP for v0.2.0. APT resolves the package's runtime dependencies. Open **MCP Server Builder** from the applications menu. Remove the installation with `sudo apt remove mcp-server-builder`.
 
 ## Build the Windows pilot installer
 
@@ -30,6 +30,23 @@ Pop-Location
 The script builds the release CLI and desktop from the same checkout. It stages the CLI for Tauri and creates an unsigned per-user NSIS installer under `x86_64-pc-windows-msvc/release/bundle/nsis` in the Cargo target directory. Pass `-TargetDirectory` to choose the output location. The Windows package places `mcp-builder.exe` beside the desktop executable. That copy serves as the managed playground worker and can also be invoked directly from PowerShell. The bundled CLI follows the same approval requirements as a source build. [CLI workflow](local-cli.md)
 
 On the Windows acceptance VM, record the installer SHA-256, signing status, and WebView2 version before completing the pilot workflow. The installer uses Evergreen WebView2 when present and downloads Microsoft's bootstrapper when the runtime is missing. [Windows pilot checklist](windows-pilot.md)
+
+## Build the macOS or Ubuntu installer
+
+Use the platform-native build tools, PowerShell 7.3 or later, and the locked Rust and Node versions. Install the Xcode Command Line Tools on macOS or the Tauri Debian development libraries on Ubuntu.
+
+```powershell
+Push-Location apps/desktop
+npm ci --engine-strict
+Pop-Location
+./apps/desktop/scripts/build-unix-release.ps1
+```
+
+The script builds and stages the first-party `mcp-builder` CLI before invoking Tauri with the native installer target. The DMG is under `aarch64-apple-darwin/release/bundle/dmg` and the DEB is under `x86_64-unknown-linux-gnu/release/bundle/deb` in the Cargo target directory. Pass `-TargetDirectory` to choose the output location. [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+
+## Hosted installer verification
+
+Dispatch **Desktop release installers** on the release commit or push to a `codex/release-*` branch. On each disposable runner, it installs that checkout's native package, checks the packaged CLI, exercises the catalog's fixture replay and builds and tests a standalone export. Windows uses native UI Automation to exercise the installed playground. macOS and Ubuntu verify the window of the installed application and run the desktop IPC playground checks with the first-party worker in Foundation CI. The installer job checks package removal and confirms the portable project remains. A job uploads its ZIP and SHA-256 companion after the checks pass. [Desktop installer workflow](../.github/workflows/windows-pilot.yml) · [Foundation checks](ci.md)
 
 ## Build, WebView and signing constraints
 

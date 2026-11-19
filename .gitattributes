@@ -3,3 +3,4 @@ apps/desktop/**/*.css text eol=lf
 apps/desktop/**/*.html text eol=lf
 apps/desktop/**/*.json text eol=lf
 apps/desktop/**/*.ts text eol=lf
+.github/ci/*.sh text eol=lf

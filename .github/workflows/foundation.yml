@@ -3,7 +3,7 @@ name: Foundation CI
 on:
   pull_request:
   push:
-    branches: [main, master]
+    branches: [main, master, 'codex/release-*']
   workflow_dispatch:
 
 permissions:
@@ -118,8 +118,17 @@ jobs:
         run: node .github/ci/cli-smoke.mjs
 
       - name: Validate, replay, and exercise a generated standalone server
-        if: runner.os == 'Windows' || runner.os == 'Linux'
         run: node .github/ci/standalone-smoke.mjs
+
+      - name: Exercise desktop IPC with the real playground worker
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $worker = if ($IsWindows) { 'mcp-builder.exe' } else { 'mcp-builder' }
+          $debug = Join-Path $env:CARGO_TARGET_DIR 'debug'
+          $staged = Join-Path $debug "deps/$worker"
+          Copy-Item -LiteralPath (Join-Path $debug $worker) -Destination $staged
+          if (!$IsWindows) { chmod 0755 $staged }
+          cargo test --locked -p mcp-builder-desktop --features custom-protocol -- --ignored
 
       - name: Check six locked rmcp profiles
         run: node .github/ci/sdk-probes.mjs

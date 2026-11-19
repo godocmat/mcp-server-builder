@@ -1,13 +1,13 @@
 # Third-party distribution notices
 
-This Windows x64 package includes software from the following projects. The
+This distribution package includes software from the following projects. The
 builder's own source is covered by the accompanying [LICENSE](LICENSE) and
 [NOTICE](NOTICE).
 
 - The bundled UI's dependency terms are in
   [Angular's build report](licenses/angular-bundle.txt).
-- The Rust dependencies resolved for the Windows build are listed in the
-  [locked Windows Cargo inventory](licenses/cargo-inventory.txt). Their licenses
+- The Rust dependencies resolved for this platform are listed in the
+  [locked Cargo inventory](licenses/cargo-inventory.txt). Their licenses
   and copyright notices are in `licenses/cargo/`. This inventory includes
   build-time dependencies. The exact crate download links provide source
   for all listed packages, including packages covered by the Mozilla Public
@@ -17,18 +17,10 @@ builder's own source is covered by the accompanying [LICENSE](LICENSE) and
 - The embedded trust store comes from `webpki-roots` 1.0.11 under
   [CDLA-Permissive-2.0](licenses/cargo/webpki-roots@1.0.11/LICENSE).
   [CCADB Data Usage Terms](https://www.ccadb.org/rootstores/usage#ccadb-data-usage-terms)
-- The installer uses the zlib compression profile of
-  [NSIS 3.13](licenses/installer/nsis-3.13-COPYING.txt) and the
-  [Tauri NSIS plugin 0.5.3](licenses/installer/nsis-tauri-utils-0.5.3-MIT.txt).
-  [NSIS source](https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/)
-  · [Tauri plugin source](https://github.com/tauri-apps/nsis-tauri-utils/tree/13d9edd27b69310e108d6fbd49f90992f8a05390)
-- The desktop executable uses the Microsoft WebView2 SDK loader from
-  version 1.0.3800.47. Its
-  [license](licenses/installer/Microsoft.Web.WebView2-1.0.3800.47-LICENSE.txt)
-  and [notices](licenses/installer/Microsoft.Web.WebView2-1.0.3800.47-NOTICE.txt)
-  are supplied under Microsoft's terms. Windows uses the separately installed
-  Microsoft Edge WebView2 Evergreen Runtime.
-  [Microsoft WebView2 SDK](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3800.47)
+
+Windows archives also include the installer and WebView2 loader terms in
+`WINDOWS-INSTALLER-NOTICES.md`. The Apple system WebKit and Ubuntu WebKitGTK
+runtime packages are supplied by the operating system.
 
 Some Cargo archives omit their repository's license file. The companion license
 texts come from the matching upstream sources.
@@ -39,3 +31,6 @@ texts come from the matching upstream sources.
 - [tauri-plugin](https://github.com/tauri-apps/tauri/blob/59b63ab500da9859f12d8888c3298bc29bba0b92/LICENSE-MIT)
 - [simd workspace](https://github.com/Nugine/simd/blob/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE)
 - [webview2-rs workspace](https://github.com/wravery/webview2-rs/blob/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE)
+- [dlopen2 workspace](https://github.com/OpenByteDev/dlopen2/blob/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE)
+- [libappindicator workspace](https://github.com/tauri-apps/libappindicator-rs/blob/eafd1e3682a1247f595410266091e9684021cb6f/LICENSE-MIT)
+- [objc2 workspace terms](https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md) · [Retained MIT text](https://github.com/madsmtm/objc2/blob/757cd841d0293341dbefd9b99d7548dec244ffde/LICENSE.txt)
