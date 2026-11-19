@@ -1,0 +1,39 @@
+name: Unix playground candidate
+
+on:
+  push:
+    branches: [codex/unix-playground-check]
+
+permissions:
+  contents: read
+
+jobs:
+  headless:
+    name: Headless playground (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, ubuntu-24.04]
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check format
+        run: cargo fmt --all --check
+      - name: Run Unix launch and transport tests
+        run: cargo test --locked -p builder-playground
+      - name: Replay both MCP revisions in the native CLI
+        run: |
+          cargo test --locked -p mcp-builder --test managed_playground real_cli_replays_both_revisions_and_rejects_stale_approval
+          cargo test --locked -p mcp-builder --test mvp_cli replay::
+      - name: Check the Linux live playground
+        if: runner.os == 'Linux'
+        run: cargo test --locked -p mcp-builder --test managed_playground
+      - name: Check all targets with Clippy
+        run: cargo clippy --locked -p builder-playground -p mcp-builder --all-targets -- -D warnings
