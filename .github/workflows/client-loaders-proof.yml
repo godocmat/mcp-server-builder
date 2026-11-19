@@ -1,0 +1,57 @@
+name: Native clients proof for v0.3.0
+
+on:
+  push:
+    branches: ['codex/client-loaders-0.3.0-check']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  native-clients:
+    name: Pinned native clients (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+            rust-host: aarch64-apple-darwin
+          - runner: ubuntu-24.04
+            arch: x64
+            rust-host: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify the exact release source
+        env:
+          EXPECTED_RUST_HOST: ${{ matrix.rust-host }}
+        run: |
+          candidate=cf90c94baadb8c2f338ab5a955e4b52216650af9
+          git merge-base --is-ancestor "$candidate" HEAD
+          git diff --exit-code "$candidate" HEAD -- . \
+            ':(exclude).github/workflows/client-loaders-proof.yml' \
+            ':(exclude).github/ci/client-loaders-proof.mjs'
+          rustc -vV | awk -v expected="$EXPECTED_RUST_HOST" '$1 == "host:" && $2 == expected { valid = 1 } END { exit !valid }'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+
+      - name: Build the v0.3.0 CLI
+        run: cargo build --locked -p mcp-builder
+
+      - name: Connect pinned native clients using unmodified exports
+        run: node .github/ci/client-loaders-proof.mjs
