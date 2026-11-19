@@ -47,7 +47,8 @@ operator-owned file, such as `runtime-config.local.json`.
   to an operator-controlled absolute directory. For example, the mapping for
   `catalog_docs` can be `{"kind":"fileRead","path":"C:/reviewed/catalog"}`.
   Windows file roots require local NTFS with exact path spelling. Linux file
-  roots require local ext4 or tmpfs, `openat2`, and procfs. The server rejects
+  roots require local ext4 or tmpfs, `openat2`, and procfs. macOS file roots require
+  local APFS and exact stored names. The server rejects
   unsupported file-root mappings at startup.
 - For any HTTPS credential binding, map its manifest secret reference in
   `secretSources` to a named environment source. For example, `catalog_auth`

@@ -1,4 +1,4 @@
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use std::{fs, io::Read};
 
 use super::Root;
@@ -30,7 +30,7 @@ fn bounds_native_path_work() {
     );
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn reads_exact_nested_name_and_rejects_unsupported_paths() {
     let temp = tempfile::tempdir().unwrap();
@@ -69,7 +69,7 @@ fn reads_exact_nested_name_and_rejects_unsupported_paths() {
     assert!(Root::open(&temp.path().join("outside.txt")).is_err());
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn refuses_hard_links_within_and_outside_the_approved_root() {
     let temp = tempfile::tempdir().unwrap();
@@ -267,7 +267,7 @@ fn refuses_non_disk_root_forms() {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn refuses_symlinks_and_special_files_without_opening_them_for_data() {
     use std::ffi::CString;
@@ -295,7 +295,7 @@ fn refuses_symlinks_and_special_files_without_opening_them_for_data() {
     assert!(Root::open(&approved.join("dir-link")).is_err());
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn refuses_a_file_moved_away_before_its_first_read() {
     let temp = tempfile::tempdir().unwrap();
@@ -315,4 +315,16 @@ fn refuses_a_file_moved_away_before_its_first_read() {
         .read_to_string(&mut content)
         .unwrap();
     assert_eq!(content, "replacement");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn refuses_normalization_aliases_on_apfs() {
+    let scratch = tempfile::tempdir().unwrap();
+    let file = scratch.path().join("Café.txt");
+    fs::write(&file, b"test").unwrap();
+    let alias = "Cafe\u{301}.txt";
+    let root = Root::open(scratch.path()).unwrap();
+    assert!(root.open_file("Café.txt").is_ok());
+    assert!(root.open_file(alias).is_err());
 }

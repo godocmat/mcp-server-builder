@@ -202,7 +202,7 @@ fn fresh_shells_validate_generate_and_recover_portable_projects() {
     assert_eq!(registered.len(), 1);
     assert_eq!(registered[0]["status"], "available");
 
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let planned = call(
             wd,
@@ -300,7 +300,7 @@ fn fresh_shells_validate_generate_and_recover_portable_projects() {
     assert_eq!(recovered["data"]["document"]["name"], "Catalog sample");
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn cli_export_conflict_requests_a_new_review_without_printing_file_contents() {
     const MARKER: &str = "export-local-content-canary-1a719";

@@ -29,6 +29,9 @@ zeroize = "=1.9.1"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.191"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+mcp-native-fs = { path = "../mcp-native-fs" }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = [
     "Wdk_Foundation",
@@ -38,6 +41,9 @@ windows-sys = { version = "=0.61.2", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
 ] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "=0.2.191"
 
 [dev-dependencies]
 builder-project.workspace = true

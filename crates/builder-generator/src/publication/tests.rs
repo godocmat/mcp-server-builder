@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{self, File};
 
 use super::*;
 
@@ -40,7 +40,6 @@ fn rejects_unsafe_names_and_collisions_before_staging() {
     .unwrap();
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn stages_every_file_before_recheck_and_publishes_complete_tree() {
     let parent = tempfile::tempdir().unwrap();
@@ -72,7 +71,6 @@ fn stages_every_file_before_recheck_and_publishes_complete_tree() {
     assert_eq!(fs::read_dir(parent.path()).unwrap().count(), 1);
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn existing_file_or_directory_is_a_collision() {
     let parent = tempfile::tempdir().unwrap();
@@ -95,7 +93,6 @@ fn existing_file_or_directory_is_a_collision() {
     assert_eq!(fs::read_dir(parent.path()).unwrap().count(), 2);
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn a_destination_created_during_recheck_wins_without_losing_any_bytes() {
     let parent = tempfile::tempdir().unwrap();
@@ -109,7 +106,6 @@ fn a_destination_created_during_recheck_wins_without_losing_any_bytes() {
     assert_eq!(fs::read_dir(parent.path()).unwrap().count(), 1);
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn failed_recheck_cleans_up_and_a_retry_publishes() {
     let parent = tempfile::tempdir().unwrap();
@@ -128,7 +124,6 @@ fn failed_recheck_cleans_up_and_a_retry_publishes() {
     assert_eq!(read_tree(&destination).unwrap(), files);
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn inventory_skips_local_metadata_and_keeps_nested_sources() {
     let parent = tempfile::tempdir().unwrap();
@@ -145,7 +140,6 @@ fn inventory_skips_local_metadata_and_keeps_nested_sources() {
     assert_eq!(read_tree(&destination).unwrap(), files);
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn rejects_linked_files_and_bounds_reads() {
     let parent = tempfile::tempdir().unwrap();
@@ -178,7 +172,6 @@ fn rejects_linked_files_and_bounds_reads() {
     ));
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn refuses_linked_parent_and_does_not_follow_linked_children() {
     let temp = tempfile::tempdir().unwrap();
@@ -188,7 +181,7 @@ fn refuses_linked_parent_and_does_not_follow_linked_children() {
     fs::create_dir(&outside).unwrap();
     fs::create_dir(&export).unwrap();
     fs::write(outside.join("project.json"), b"fixture").unwrap();
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, &link).unwrap();
     #[cfg(windows)]
     {
@@ -218,7 +211,6 @@ fn refuses_linked_parent_and_does_not_follow_linked_children() {
     assert_eq!(fs::read(outside.join("project.json")).unwrap(), b"fixture");
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 fn fixture() -> BTreeMap<String, Vec<u8>> {
     BTreeMap::from([
         ("Cargo.toml".to_owned(), b"[workspace]\n".to_vec()),
@@ -226,16 +218,47 @@ fn fixture() -> BTreeMap<String, Vec<u8>> {
     ])
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 fn check_destination(path: &Path) -> Result<PathBuf, ExportError> {
     Ok(Destination::open(path)?.path())
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 fn publish(
     path: &Path,
     files: &BTreeMap<String, Vec<u8>>,
     recheck: impl FnOnce() -> Result<(), ExportError>,
 ) -> Result<(), ExportError> {
     Destination::open(path)?.publish(files, recheck)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn refuses_apfs_aliases_in_read_inputs() {
+    let parent = tempfile::tempdir().unwrap();
+    let file = parent.path().join("Café.txt");
+    fs::write(&file, b"original").unwrap();
+    for alias in ["café.txt", "Cafe\u{301}.txt"] {
+        assert!(matches!(
+            read_file(&parent.path().join(alias), 64),
+            Err(ExportError::UnsafePath | ExportError::Storage)
+        ));
+    }
+    assert_eq!(read_file(&file, 64).unwrap(), b"original");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn does_not_publish_after_the_selected_parent_changes() {
+    let root = tempfile::tempdir().unwrap();
+    let parent = root.path().join("parent");
+    let moved = root.path().join("moved");
+    fs::create_dir(&parent).unwrap();
+    let destination = parent.join("export");
+    let result = publish(&destination, &fixture(), || {
+        fs::rename(&parent, &moved).unwrap();
+        fs::create_dir(&parent).unwrap();
+        Ok(())
+    });
+    assert!(matches!(result, Err(ExportError::UnsafePath)));
+    assert!(!destination.exists());
+    assert!(!moved.join("export").exists());
 }

@@ -2,8 +2,12 @@
 //! Keep generated paths portable and publish only through a no-replace rename.
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::ffi::OsString;
+#[cfg(not(target_os = "macos"))]
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io;
+#[cfg(not(target_os = "macos"))]
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 use builder_project::is_portable_path;
@@ -14,10 +18,13 @@ use crate::ExportError;
 #[cfg(target_os = "linux")]
 #[path = "publication/linux.rs"]
 mod platform;
+#[cfg(target_os = "macos")]
+#[path = "publication/macos.rs"]
+mod platform;
 #[cfg(windows)]
 #[path = "publication/windows.rs"]
 mod platform;
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 #[path = "publication/unsupported.rs"]
 mod platform;
 
@@ -107,6 +114,18 @@ impl Destination {
             check_size(bytes.len(), &mut bytes_left)?;
         }
 
+        #[cfg(target_os = "macos")]
+        return self.parent.write_and_publish(&self.name, files, recheck);
+        #[cfg(not(target_os = "macos"))]
+        self.publish_with_tempfile(files, recheck)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn publish_with_tempfile(
+        &self,
+        files: &BTreeMap<String, Vec<u8>>,
+        recheck: impl FnOnce() -> Result<(), ExportError>,
+    ) -> Result<(), ExportError> {
         let mut stage_builder = tempfile::Builder::new();
         stage_builder.prefix(STAGE_PREFIX).rand_bytes(16);
         #[cfg(unix)]
@@ -137,6 +156,7 @@ impl Destination {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn write_stage(
     directory: &Directory,
     files: &BTreeMap<String, Vec<u8>>,
@@ -201,16 +221,12 @@ struct Tree {
 impl Tree {
     fn scan(&mut self, directory: &Directory, prefix: &str) -> Result<(), ExportError> {
         let mut names = BTreeSet::new();
-        for entry in fs::read_dir(directory.access_path()).map_err(storage)? {
+        for entry in directory_names(directory)? {
             self.entries_left = self
                 .entries_left
                 .checked_sub(1)
                 .ok_or(ExportError::InputTooLarge)?;
-            let entry = entry.map_err(storage)?;
-            let name = entry
-                .file_name()
-                .into_string()
-                .map_err(|_| ExportError::UnsafePath)?;
+            let name = entry?.into_string().map_err(|_| ExportError::UnsafePath)?;
             let relative = if prefix.is_empty() {
                 name.clone()
             } else {
@@ -240,6 +256,22 @@ impl Tree {
         }
         directory.verify()
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn directory_names(
+    directory: &Directory,
+) -> Result<impl Iterator<Item = Result<OsString, ExportError>>, ExportError> {
+    Ok(fs::read_dir(directory.access_path())
+        .map_err(storage)?
+        .map(|entry| entry.map(|entry| entry.file_name()).map_err(storage)))
+}
+
+#[cfg(target_os = "macos")]
+fn directory_names(
+    directory: &Directory,
+) -> Result<impl Iterator<Item = Result<OsString, ExportError>>, ExportError> {
+    directory.names()
 }
 
 fn validate_relative(path: &str) -> Result<(), ExportError> {
@@ -323,11 +355,11 @@ fn absolute_path(path: &Path) -> Result<PathBuf, ExportError> {
     Ok(resolved)
 }
 
-#[cfg(any(target_os = "linux", windows))]
-fn read_bounded(file: &fs::File, max_bytes: usize) -> Result<Vec<u8>, ExportError> {
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+fn read_bounded(file: impl io::Read, len: u64, max_bytes: usize) -> Result<Vec<u8>, ExportError> {
     use std::io::Read;
 
-    if file.metadata().map_err(storage)?.len() > max_bytes as u64 {
+    if len > max_bytes as u64 {
         return Err(ExportError::InputTooLarge);
     }
     let mut bytes = Vec::new();
@@ -352,6 +384,6 @@ fn storage(_: io::Error) -> ExportError {
     ExportError::Storage
 }
 
-#[cfg(all(test, any(target_os = "linux", windows)))]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos", windows)))]
 #[path = "publication/tests.rs"]
 mod tests;

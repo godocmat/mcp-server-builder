@@ -16,7 +16,7 @@ const VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 const SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 const DIAGNOSTIC: &str = "mcp-server-builder/diagnostic";
 const CATALOG: &str = "wire-catalog";
-const FILE_RESOURCES: bool = cfg!(any(windows, target_os = "linux"));
+const FILE_RESOURCES: bool = cfg!(any(windows, target_os = "linux", target_os = "macos"));
 const WAIT: Duration = Duration::from_secs(8);
 const POLL: Duration = Duration::from_millis(10);
 const FRAME_LIMIT: usize = 1024 * 1024;

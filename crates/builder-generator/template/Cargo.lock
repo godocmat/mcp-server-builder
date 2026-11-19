@@ -839,6 +839,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
+name = "mcp-native-fs"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rustix",
+]
+
+[[package]]
 name = "mcp-policy"
 version = "0.1.0"
 dependencies = [
@@ -899,6 +907,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "mcp-native-fs",
  "mcp-policy",
  "mcp-runtime",
  "percent-encoding",

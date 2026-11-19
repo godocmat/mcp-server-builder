@@ -203,7 +203,11 @@ pub(super) struct RegularFile {
 impl RegularFile {
     pub(super) fn read(&self, max_bytes: usize) -> Result<Vec<u8>, ExportError> {
         self.verify()?;
-        let bytes = read_bounded(&self.file, max_bytes)?;
+        let bytes = read_bounded(
+            &self.file,
+            self.file.metadata().map_err(storage)?.len(),
+            max_bytes,
+        )?;
         self.verify()?;
         Ok(bytes)
     }
